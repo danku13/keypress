@@ -55,6 +55,14 @@ cargo test                          :: 41 тест: config, keys, input, fx, mai
   набором через `SetWindowLongPtrW`. Важно: клик-тру работает только
   в паре `WS_EX_LAYERED | WS_EX_TRANSPARENT` — один `WS_EX_TRANSPARENT`
   без LAYERED перехватывает клики (это и был баг v0.1).
+- Ещё одна ловушка слоёных окон: `WS_EX_LAYERED`-окно вообще не рисуется,
+  пока для него не вызваны `SetLayeredWindowAttributes`/
+  `UpdateLayeredWindow`. winit 0.29.15 атрибуты слоёв не задаёт, поэтому
+  `apply_overlay_styles()` каждый кадр вызывает
+  `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)` — без этого оверлей
+  после включения клик-тру становился полностью невидимым (баг v0.2),
+  а с ним рисуется нормально и пер-пиксельная прозрачность egui
+  сохраняется.
 - Рендер: egui (wgpu). Конфиг: `toml`, оверлей перечитывает файл по mtime.
 - Модули: `keys.rs`/`input.rs`/`fx.rs` — чистая логика без Win API,
   `hooks.rs`/`winutil.rs`/`overlay.rs`/`settings.rs` — Windows-клей.

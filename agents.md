@@ -51,6 +51,11 @@
    **Баг v0.1**: ставился один `WS_EX_TRANSPARENT` без LAYERED — по Win32
    это не влияет на hit-test, фуллскрин-оверлей глотал все клики экрана
    (Пуск/таскбар нажимались только через выбор приложения Alt+Tab'ом).
+   **Баг v0.2**: слоёное окно (WS_EX_LAYERED) не отображается, пока не
+   вызваны SetLayeredWindowAttributes/UpdateLayeredWindow, а winit 0.29.15
+   этого не делает — после включения клик-тру оверлей стал целиком
+   невидимым. Фикс: `apply_overlay_styles()` каждый кадр также вызывает
+   `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)`.
 5. **IPC = файл конфига**: панель настроек пишет `keyviz-lite.toml`,
    оверлей проверяет mtime каждые 300 мс и перечитывает. Конфиг при загрузке
    прогоняется через `normalized()` (клампинг в диапазоны слайдеров — защита
@@ -82,7 +87,7 @@ src/fx.rs       — чистая математика эффектов: premulti
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)
 src/settings.rs — панель настроек (egui-виджеты)
-src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT!)/остановка оверлея
+src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/остановка оверлея
 ```
 
 ## Сборка, тесты, проверка
