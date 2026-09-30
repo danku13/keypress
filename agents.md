@@ -30,43 +30,68 @@
 
 ## Архитектурные решения и почему
 
-1. **Один бинарник, два режима**: без аргументов — оверлей, `--settings` — панель.
+1. **Один бинарник, два режима**: без аргументов — оверлей + авто-открытие
+   панели настроек (если ещё не открыта), `--settings` — только панель.
    Два eframe-приложения в одном процессе неудобно (multi-viewport сыроват),
    два процесса + IPC через файл — самое простое и надежное.
+   Single-instance: повторный запуск exe не создает второй оверлей,
+   а просто открывает панель (FindWindowW по заголовкам).
 2. **Нативные хуки, а не rdev**: `KBDLLHOOKSTRUCT` дает vkCode, `MSLLHOOKSTRUCT` —
    точные координаты клика/скролла (rdev координаты в событии не отдает).
 3. **Хуки в отдельном потоке**, в UI уходят готовые `UiEvent` через канал.
    Хук-проц только наблюдает: `CallNextHookEx` всегда, ввод никогда не глотается,
    инжектированный ввод (`LLKHF_INJECTED`/`LLMHF_INJECTED`) игнорируется.
 4. **Оверлей**: fullscreen borderless + transparent + always-on-top.
-   Click-through и no-activate (`WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`)
-   применяются **каждый кадр** через `SetWindowLongPtrW` — переживает любые
-   переходы окна (fullscreen и т.п.).
+   **Клик-тру — обязательная пара `WS_EX_LAYERED | WS_EX_TRANSPARENT`**:
+   - главный механизм — `ViewportBuilder::with_mouse_passthrough(true)`,
+     egui-winit вызывает winit `set_cursor_hittest(false)` → флаг
+     IGNORE_CURSOR_EVENT, и winit сам применяет и держит пару LAYERED+TRANSPARENT;
+   - подстраховка — каждый кадр `apply_overlay_styles()` OR-ит те же биты
+     (`WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`).
+   **Баг v0.1**: ставился один `WS_EX_TRANSPARENT` без LAYERED — по Win32
+   это не влияет на hit-test, фуллскрин-оверлей глотал все клики экрана
+   (Пуск/таскбар нажимались только через выбор приложения Alt+Tab'ом).
 5. **IPC = файл конфига**: панель настроек пишет `keyviz-lite.toml`,
-   оверлей проверяет mtime каждые 300 мс и перечитывает.
-6. **Агрегация комбо**: модификаторы трекаются в held-set; «Ctrl + C» собирается
-   при нажатии обычной клавиши; одиночный модификатор показывается через 280 мс,
-   если за это время не пришла обычная клавиша (pending через WM_TIMER).
+   оверлей проверяет mtime каждые 300 мс и перечитывает. Конфиг при загрузке
+   прогоняется через `normalized()` (клампинг в диапазоны слайдеров — защита
+   от ручной правки toml).
+6. **Агрегация комбо**: `keys::KeyAggregator` (чистый, тестируемый):
+   модификаторы в held-set; «Ctrl + C» собирается при нажатии обычной клавиши;
+   одиночный модификатор показывается через 280 мс (WM_TIMER), если за это
+   время не пришла обычная клавиша; если зажато несколько модификаторов —
+   таймаут показывает весь комбо («Ctrl + Shift»).
 7. **Цвета хранятся как `[f32; 4]` прямой альфы**, при отрисовке конвертируются
-   в premultiplied (`Color32::from_rgba_premultiplied`) — egui так и ждет.
+   в premultiplied (`fx::premultiply` + `Color32::from_rgba_premultiplied`) —
+   egui так и ждет.
+8. **TDD/тесты**: вся чистая логика вынесена в кроссплатформенные модули
+   `keys.rs`, `input.rs`, `fx.rs`, `config.rs` + диспетчер в `main.rs`.
+   `cargo test` (41 тест) выполняется прямо на Linux/CI без Windows;
+   GUI-клей (hooks/winutil/overlay/settings) под `#[cfg(windows)]` и
+   `eframe`/`crossbeam` в `[target.'cfg(windows)'.dependencies]`,
+   проверяется `cargo check --target x86_64-pc-windows-gnu`.
+   Разработка велась строго RED → GREEN: сначала падающие тесты, потом код.
 
 ## Ключевые файлы
 
 ```
-src/main.rs     — диспетчер режимов (оверлей / --settings)
-src/config.rs   — Config, load/save toml, значения по умолчанию
-src/input.rs    — UiEvent (Keys/Click/Scroll/TogglePause/Quit)
-src/hooks.rs    — поток хуков: клавиатура, мышь, скролл, хоткеи, таблица VK-имен
-src/overlay.rs  — окно-оверлей и весь рендер эффектов
+src/main.rs     — диспетчер режимов (decide_mode тестируем) + автоспавн панели
+src/config.rs   — Config, load/save toml, normalized() клампинг, дефолты
+src/input.rs    — UiEvent + чистые хелперы: флаги инжекций, кнопки, колесо
+src/keys.rs     — таблицы VK-имен + KeyAggregator (комбо) — чистые, тесты
+src/fx.rs       — чистая математика эффектов: premultiply, альфа, зум, радиусы
+src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
+src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)
 src/settings.rs — панель настроек (egui-виджеты)
-src/winutil.rs  — FindWindow/клик-тру/остановка оверлея (HWND = isize в windows-sys 0.52!)
+src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT!)/остановка оверлея
 ```
 
-## Сборка
+## Сборка, тесты, проверка
 
 ```bat
-cargo run --release                 :: оверлей
-cargo run --release -- --settings   :: панель настроек
+cargo test                                        :: 41 unit-тест (не требует Windows)
+cargo run --release                               :: оверлей + панель
+cargo run --release -- --settings                 :: только панель
+cargo check --target x86_64-pc-windows-gnu        :: кросс-проверка клея
 ```
 
 ## Горячие клавиши (зафиксированы)

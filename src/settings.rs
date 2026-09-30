@@ -106,15 +106,18 @@ impl eframe::App for SettingsApp {
                             .text("Скругление клавиш"),
                     )
                     .changed();
-                changed |= ui.checkbox(&mut self.cfg.show_keys, "Показывать клавиши").changed();
+                changed |= ui
+                    .checkbox(&mut self.cfg.show_keys, "Показывать клавиши")
+                    .changed();
             });
 
             ui.add_space(6.0);
 
             ui.group(|ui| {
                 ui.strong("Клики мыши");
-                changed |=
-                    ui.checkbox(&mut self.cfg.show_clicks, "Показывать клики").changed();
+                changed |= ui
+                    .checkbox(&mut self.cfg.show_clicks, "Показывать клики")
+                    .changed();
                 ui.label("Форма индикатора:");
                 ui.horizontal(|ui| {
                     changed |= ui
@@ -177,12 +180,12 @@ impl eframe::App for SettingsApp {
 pub fn run() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Keystro-lite — настройки")
+            .with_title(crate::winutil::SETTINGS_TITLE)
             .with_inner_size([470.0, 720.0]),
         ..Default::default()
     };
     let _ = eframe::run_native(
-        "Keystro-lite — настройки",
+        crate::winutil::SETTINGS_TITLE,
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());

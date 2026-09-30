@@ -44,14 +44,10 @@ pub struct OverlayApp {
 }
 
 /// Прямой альфа-канал (как в конфиге) -> premultiplied (как любит egui).
+/// Конвертация считается в fx::premultiply (покрыта тестами).
 fn col(c: [f32; 4], mul: f32) -> egui::Color32 {
-    let a = (c[3] * mul).clamp(0.0, 1.0);
-    egui::Color32::from_rgba_premultiplied(
-        (c[0] * a * 255.0) as u8,
-        (c[1] * a * 255.0) as u8,
-        (c[2] * a * 255.0) as u8,
-        (a * 255.0) as u8,
-    )
+    let [r, g, b, a] = crate::fx::premultiply(c, mul);
+    egui::Color32::from_rgba_premultiplied(r, g, b, a)
 }
 
 impl OverlayApp {
@@ -136,16 +132,15 @@ impl OverlayApp {
             let t = now.duration_since(r.born).as_secs_f32() / CLICK_LIFE;
             let alpha = (1.0 - t).max(0.0);
             let c = egui::Pos2::new(r.x / ppp, r.y / ppp);
-            let base = 10.0 * self.cfg.scale;
-            let grow = 34.0 * self.cfg.scale * t;
+            let radius = crate::fx::ripple_radius(self.cfg.scale, t);
             match self.cfg.click_shape {
                 ClickShape::Circle => {
-                    painter.circle_filled(c, base + grow, col(self.cfg.click_color, alpha));
+                    painter.circle_filled(c, radius, col(self.cfg.click_color, alpha));
                 }
                 ClickShape::Ring => {
                     painter.add(egui::epaint::CircleShape {
                         center: c,
-                        radius: base + grow,
+                        radius,
                         fill: egui::Color32::TRANSPARENT,
                         stroke: egui::Stroke::new(
                             3.0 * self.cfg.scale,
@@ -154,7 +149,7 @@ impl OverlayApp {
                     });
                 }
                 ClickShape::Square => {
-                    let size = (base + grow) * 1.6;
+                    let size = radius * 1.6;
                     painter.rect_filled(
                         egui::Rect::from_center_size(c, egui::vec2(size, size)),
                         egui::Rounding::same(6.0 * self.cfg.scale),
@@ -170,7 +165,7 @@ impl OverlayApp {
             let t = now.duration_since(s.born).as_secs_f32() / SCROLL_LIFE;
             let alpha = (1.0 - t).max(0.0);
             let c = egui::Pos2::new(s.x / ppp, s.y / ppp);
-            let shift = 26.0 * self.cfg.scale + 10.0 * self.cfg.scale * t;
+            let shift = crate::fx::scroll_shift(self.cfg.scale, t);
             let tri = 8.0 * self.cfg.scale;
             let cy = if s.up { c.y - shift } else { c.y + shift };
             let pts = if s.up {
@@ -207,14 +202,9 @@ impl OverlayApp {
         for b in self.bubbles.iter().rev() {
             let age = now.duration_since(b.born).as_secs_f32();
             let t = age / life;
-            let alpha = if t < 0.7 {
-                1.0
-            } else {
-                (1.0 - (t - 0.7) / 0.3).clamp(0.0, 1.0)
-            };
+            let alpha = crate::fx::bubble_alpha(t);
             // лёгкая «пружинка» при появлении
-            let pop = (age / 0.08).min(1.0);
-            let zoom = 0.85 + 0.15 * pop;
+            let zoom = crate::fx::pop_zoom(age);
 
             let galley = painter.layout_no_wrap(
                 b.text.clone(),
@@ -273,8 +263,10 @@ impl eframe::App for OverlayApp {
         let now = Instant::now();
         let ppp = ctx.pixels_per_point();
         let screen = ctx.screen_rect();
-        let painter =
-            ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("fx")));
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("fx"),
+        ));
 
         self.ripples
             .retain(|r| now.duration_since(r.born).as_secs_f32() < CLICK_LIFE);
@@ -315,9 +307,13 @@ pub fn run() {
             .with_decorations(false)
             .with_transparent(true)
             .with_window_level(egui::WindowLevel::AlwaysOnTop)
-            // окно не должно забирать фокус при создании:
-            // если вдруг не компилируется — просто удали эту строку
+            // окно не должно забирать фокус при создании
             .with_active(false)
+            // КЛИК-ТРУ: egui-winit сам вызывает winit::set_cursor_hittest(false),
+            // тот ставит IGNORE_CURSOR_EVENT -> WS_EX_LAYERED | WS_EX_TRANSPARENT
+            // через собственное состояние окна (не сбрасывается при fullscreen).
+            // Без этого оверлей перехватывал все клики экрана.
+            .with_mouse_passthrough(true)
             .with_inner_size([1024.0, 600.0]),
         ..Default::default()
     };

@@ -21,22 +21,43 @@ Windows 10/11 (64-бит), Rust + egui.
 2. В папке проекта:
 
 ```bat
-cargo run --release                 :: оверлей
-cargo run --release -- --settings   :: панель настроек
+cargo run --release                 :: оверлей + панель настроек
+cargo run --release -- --settings   :: только панель настроек
 ```
 
 Либо собери один exe: `cargo build --release` → `target\release\keyviz-lite.exe`.
 
-Удобный сценарий: запусти `keyviz-lite.exe --settings`, в панели есть кнопки
-«Запустить оверлей» / «Остановить оверлей». Панель показывает, запущен ли оверлей.
+При обычном запуске exe открываются **и панель настроек, и оверлей** —
+контроль сразу виден. Если оверлей уже запущен, повторный запуск просто
+покажет панель (второй оверлей не создастся). В панели есть кнопки
+«Запустить оверлей» / «Остановить оверлей», статус оверлея отображается.
+
+## Тесты (TDD)
+
+Чистая логика (агрегация комбо, VK-имена, фильтр инжекций, математика
+эффектов, конфиг, разбор аргументов) вынесена в кроссплатформенные модули
+и покрыта unit-тестами. Тесты не требуют Windows:
+
+```bat
+cargo test                          :: 41 тест: config, keys, input, fx, main
+```
+
+Окно-специфичный клей (hooks/winutil/overlay/settings) проверяется
+компиляцией: `cargo check --target x86_64-pc-windows-gnu`.
 
 ## Как это устроено
 
 - Поток хуков: `SetWindowsHookEx(WH_KEYBOARD_LL / WH_MOUSE_LL)` — только
   наблюдение, ввод никогда не глотается (`CallNextHookEx` всегда).
 - Оверлей: прозрачное always-on-top окно на весь экран (borderless),
-  `WS_EX_TRANSPARENT | WS_EX_NOACTIVATE` — мышь и фокус проходят насквозь.
+  клик-тру = `with_mouse_passthrough(true)` (winit сам держит
+  `WS_EX_LAYERED | WS_EX_TRANSPARENT`) + подстраховка каждый кадр тем же
+  набором через `SetWindowLongPtrW`. Важно: клик-тру работает только
+  в паре `WS_EX_LAYERED | WS_EX_TRANSPARENT` — один `WS_EX_TRANSPARENT`
+  без LAYERED перехватывает клики (это и был баг v0.1).
 - Рендер: egui (wgpu). Конфиг: `toml`, оверлей перечитывает файл по mtime.
+- Модули: `keys.rs`/`input.rs`/`fx.rs` — чистая логика без Win API,
+  `hooks.rs`/`winutil.rs`/`overlay.rs`/`settings.rs` — Windows-клей.
 
 ## Известные ограничения MVP
 

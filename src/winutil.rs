@@ -4,13 +4,20 @@
 mod imp {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetWindowLongPtrW, PostMessageW, SetWindowLongPtrW, GWL_EXSTYLE, WM_CLOSE,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+        WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
     };
 
     pub const OVERLAY_TITLE: &str = "keyviz-lite overlay";
+    pub const SETTINGS_TITLE: &str = "Keystro-lite — настройки";
 
     fn utf16z(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Открыто ли окно с таким заголовком (поиск по верхней копии).
+    pub fn window_exists(title: &str) -> bool {
+        let t = utf16z(title);
+        unsafe { FindWindowW(std::ptr::null(), t.as_ptr()) != 0 }
     }
 
     fn find_overlay() -> isize {
@@ -19,7 +26,12 @@ mod imp {
     }
 
     /// Делает оверлей прозрачным для мыши и не даём ему красть фокус.
-    /// Вызываем каждый кадр — переживает любые смены стилей окна (fullscreen и т.п.).
+    ///
+    /// ВАЖНО: клик-тру работает ТОЛЬКО в паре WS_EX_LAYERED | WS_EX_TRANSPARENT.
+    /// Раньше ставился один WS_EX_TRANSPARENT — по правилам Win32 он без
+    /// WS_EX_LAYERED не влияет на hit-test, и фуллскрин-оверлей глотал все
+    /// клики (в т.ч. по меню Пуск). Вызываем каждый кадр — переживает любые
+    /// смены стилей окна (fullscreen и т.п.).
     pub fn apply_overlay_styles() {
         let hwnd = find_overlay();
         if hwnd == 0 {
@@ -27,7 +39,8 @@ mod imp {
         }
         unsafe {
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            let add = (WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize;
+            let add =
+                (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW) as isize;
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | add);
         }
     }
@@ -50,9 +63,13 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     pub const OVERLAY_TITLE: &str = "keyviz-lite overlay";
+    pub const SETTINGS_TITLE: &str = "Keystro-lite — настройки";
     pub fn apply_overlay_styles() {}
     pub fn stop_overlay() {}
     pub fn overlay_running() -> bool {
+        false
+    }
+    pub fn window_exists(_title: &str) -> bool {
         false
     }
 }
