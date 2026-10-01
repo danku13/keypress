@@ -6,8 +6,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // Чистые кроссплатформенные модули (тестируются на Linux через cargo test)
+mod color;
 mod config;
 mod fx;
+mod icons;
 mod input;
 mod keys;
 

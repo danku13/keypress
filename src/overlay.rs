@@ -1,20 +1,43 @@
 //! Оверлей: прозрачное, always-on-top, click-through окно на весь экран.
 //! Рисует клавиши, клики и прокрутку. Ничего не перехватывает, только показывает.
+//!
+//! Виджет клавиш — два режима:
+//! - классический (по умолчанию): комбо текстом на фоновом бабле;
+//! - кейкапы (cfg.keycap_style): каждая клавиша — SVG-кейкап «вид сверху»,
+//!   мышь/колесо — SVG-иконки, части разделены «+».
+//! Иконки генерируются из шаблонов (icons.rs), растятся через egui_extras
+//! svg-лоадер и рисуются painter-ом с tint-фейдом.
 
 use crate::config::{config_path, load, ClickShape, Config};
 use crate::hooks::spawn_hooks;
+use crate::icons::{keycap_svg, mouse_svg, MouseIcon};
 use crate::input::UiEvent;
+use crate::keys::{combo_text, Part};
 use crate::winutil::apply_overlay_styles;
 use crossbeam_channel::Receiver;
 use eframe::egui;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const CLICK_LIFE: f32 = 0.55;
 const SCROLL_LIFE: f32 = 0.5;
 
+/// UV-рект всей текстуры для painter.image
+const UV: egui::Rect = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+
+/// Пропорции SVG-иконки мыши (viewBox 120x230)
+const MOUSE_W: f32 = 120.0;
+const MOUSE_H: f32 = 230.0;
+
 struct Bubble {
-    text: String,
+    parts: Vec<Part>,
     born: Instant,
+}
+
+impl Bubble {
+    fn is_wheel(&self, up: bool) -> bool {
+        self.parts.iter().any(|p| *p == Part::Wheel(up))
+    }
 }
 
 struct Ripple {
@@ -40,6 +63,8 @@ pub struct OverlayApp {
     started: bool,
     cfg_last_check: Instant,
     cfg_mtime: Option<std::time::SystemTime>,
+    /// Готовые текстуры иконок по URI (bytes://...)
+    textures: HashMap<String, egui::TextureHandle>,
 }
 
 /// Прямой альфа-канал (как в конфиге) -> premultiplied (как любит egui).
@@ -50,7 +75,9 @@ fn col(c: [f32; 4], mul: f32) -> egui::Color32 {
 }
 
 impl OverlayApp {
-    pub fn new(cfg: Config) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config) -> Self {
+        // Лоадеры картинок (в т.ч. SVG) ставятся до создания App
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::hooks::set_show_cyrillic(cfg.show_cyrillic);
         let (tx, rx) = crossbeam_channel::unbounded();
         spawn_hooks(tx);
@@ -64,23 +91,49 @@ impl OverlayApp {
             started: false,
             cfg_last_check: Instant::now(),
             cfg_mtime: None,
+            textures: HashMap::new(),
         }
     }
 
     fn drain_events(&mut self, ctx: &egui::Context) {
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
-                UiEvent::Keys { text } => {
-                    if self.paused || !self.cfg.show_keys {
+                UiEvent::Keys { parts } => {
+                    if self.paused || !self.cfg.show_keys || parts.is_empty() {
                         continue;
                     }
                     self.bubbles.push(Bubble {
-                        text,
+                        parts,
                         born: Instant::now(),
                     });
                     // Количество строк в стопке настраивается (cfg.max_keys)
-                    if self.bubbles.len() > self.cfg.max_keys {
+                    while self.bubbles.len() > self.cfg.max_keys {
                         self.bubbles.remove(0);
+                    }
+                }
+                UiEvent::WheelPulse { up } => {
+                    if self.paused || !self.cfg.show_keys {
+                        continue;
+                    }
+                    // Колесо крутится в ту же сторону: продлеваем жизнь
+                    // последней строки прокрутки, чтобы строка не гасла
+                    // посреди долгого скролла.
+                    let mut alive = false;
+                    for b in self.bubbles.iter_mut().rev() {
+                        if b.is_wheel(up) {
+                            b.born = Instant::now();
+                            alive = true;
+                            break;
+                        }
+                    }
+                    if !alive {
+                        self.bubbles.push(Bubble {
+                            parts: vec![Part::Wheel(up)],
+                            born: Instant::now(),
+                        });
+                        while self.bubbles.len() > self.cfg.max_keys {
+                            self.bubbles.remove(0);
+                        }
                     }
                 }
                 UiEvent::Click { x, y, .. } => {
@@ -191,44 +244,321 @@ impl OverlayApp {
         }
     }
 
-    fn draw_keys(&self, painter: &egui::Painter, screen: &egui::Rect, now: Instant) {
+    /// Растеризованная SVG-иконка нужного размера (в физических пикселях).
+    /// SVG генерируется с подставленными цветами, URI содержит размер и
+    /// цвета (по нему кешируются и байты, и текстура).
+    fn icon_texture(
+        &mut self,
+        ctx: &egui::Context,
+        uri: String,
+        svg: String,
+        px: egui::Vec2,
+    ) -> Option<egui::TextureHandle> {
+        if let Some(h) = self.textures.get(&uri) {
+            return Some(h.clone());
+        }
+        ctx.include_bytes(uri.clone(), svg.into_bytes());
+        let options = egui::TextureOptions::LINEAR;
+        match ctx.try_load_image(&uri, egui::load::SizeHint::Size(px.x as u32, px.y as u32)) {
+            Ok(egui::load::ImagePoll::Ready { image }) => {
+                let handle = ctx.load_texture(uri.clone(), (*image).clone(), options);
+                self.textures.insert(uri, handle.clone());
+                Some(handle)
+            }
+            _ => None, // ещё растеризуется — кадр рисуем фолбэком (текст)
+        }
+    }
+
+    /// Иконка мыши для части комбо (Мouse/Wheel). Размер в точках.
+    fn mouse_icon_texture(
+        &mut self,
+        ctx: &egui::Context,
+        icon: MouseIcon,
+        h_pt: f32,
+        ppp: f32,
+    ) -> Option<egui::TextureHandle> {
+        let (highlight, name) = match icon {
+            MouseIcon::Left => (self.cfg.click_color, "mouse_l"),
+            MouseIcon::Right => (self.cfg.click_color, "mouse_r"),
+            MouseIcon::Middle => (self.cfg.click_color, "mouse_m"),
+            MouseIcon::WheelUp => (self.cfg.scroll_color, "wheel_u"),
+            MouseIcon::WheelDown => (self.cfg.scroll_color, "wheel_d"),
+        };
+        let body = crate::color::hex_argb(self.cfg.key_bg);
+        let outline = crate::color::hex_argb(self.cfg.key_text);
+        let hl = crate::color::hex_argb(highlight);
+        let w_pt = h_pt * MOUSE_W / MOUSE_H;
+        // Размер растра — в физических пикселях, чтобы было чётко при любом ppp
+        let px = egui::vec2((w_pt * ppp).round().max(8.0), (h_pt * ppp).round().max(8.0));
+        let uri = format!("bytes://{name}_{}_{}.svg", px.x as u32, &hl[1..]);
+        let svg = mouse_svg(icon, &hl, &body, &outline);
+        self.icon_texture(ctx, uri, svg, px)
+    }
+
+    /// Текстура кейкапа под ширину подписи. Ширина квантуется, чтобы не плодить текстуры.
+    fn keycap_texture(
+        &mut self,
+        ctx: &egui::Context,
+        w_pt: f32,
+        h_pt: f32,
+        ppp: f32,
+    ) -> Option<egui::TextureHandle> {
+        let top = crate::color::hex_argb(self.cfg.key_bg);
+        let side = crate::color::hex_shade(&top, 0.45);
+        let edge = crate::color::hex_shade(&crate::color::hex_argb(self.cfg.key_text), 0.45);
+        let px = egui::vec2((w_pt * ppp).round().max(8.0), (h_pt * ppp).round().max(8.0));
+        let uri = format!(
+            "bytes://cap_{}_{}_{}.svg",
+            px.x as u32,
+            px.y as u32,
+            &top[1..]
+        );
+        let svg = keycap_svg(px.x as u32, px.y as u32, &top, &side, &edge);
+        self.icon_texture(ctx, uri, svg, px)
+    }
+
+    fn draw_keys(
+        &mut self,
+        painter: &egui::Painter,
+        screen: &egui::Rect,
+        ctx: &egui::Context,
+        now: Instant,
+    ) {
         let life = self.cfg.key_duration;
         let ax = screen.min.x + screen.width() * self.cfg.pos_x;
         let ay = screen.min.y + screen.height() * self.cfg.pos_y;
         let font_size = 20.0 * self.cfg.scale;
         let pad = 10.0 * self.cfg.scale;
         let gap = 6.0 * self.cfg.scale;
+        let ppp = ctx.pixels_per_point();
 
         // Новый комбо появляется внизу (у якоря), предыдущие уезжают вверх
         let mut y_bottom = ay;
-        for b in self.bubbles.iter().rev() {
+        for i in (0..self.bubbles.len()).rev() {
+            let b = &self.bubbles[i];
             let age = now.duration_since(b.born).as_secs_f32();
             let t = age / life;
             let alpha = crate::fx::bubble_alpha(t);
             // лёгкая «пружинка» при появлении
             let zoom = crate::fx::pop_zoom(age);
 
-            let galley = painter.layout_no_wrap(
-                b.text.clone(),
-                egui::FontId::proportional(font_size),
+            if self.cfg.keycap_style {
+                let parts = b.parts.clone();
+                y_bottom = self.draw_keycap_row(
+                    painter, ctx, &parts, ax, y_bottom, font_size, gap, alpha, zoom, ppp,
+                );
+            } else {
+                y_bottom = self.draw_classic_bubble(
+                    painter, b, ax, y_bottom, font_size, pad, gap, alpha, zoom,
+                );
+            }
+        }
+    }
+
+    /// Классический режим: текст комбо на фоновом бабле (без изменений).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_classic_bubble(
+        &self,
+        painter: &egui::Painter,
+        b: &Bubble,
+        ax: f32,
+        y_bottom: f32,
+        font_size: f32,
+        pad: f32,
+        gap: f32,
+        alpha: f32,
+        zoom: f32,
+    ) -> f32 {
+        let text = combo_text(&b.parts);
+        let galley = painter.layout_no_wrap(
+            text,
+            egui::FontId::proportional(font_size),
+            egui::Color32::WHITE,
+        );
+        let gsize = galley.size();
+        let bw = (gsize.x + pad * 2.0) * zoom;
+        let bh = (gsize.y + pad * 2.0) * zoom;
+        let center = egui::Pos2::new(ax, y_bottom - bh / 2.0);
+        let rect = egui::Rect::from_center_size(center, egui::vec2(bw, bh));
+
+        painter.rect_filled(
+            rect,
+            egui::Rounding::same(self.cfg.key_radius * self.cfg.scale),
+            col(self.cfg.key_bg, alpha),
+        );
+        let text_pos = egui::Pos2::new(center.x - gsize.x / 2.0, center.y - gsize.y / 2.0);
+        painter.galley(text_pos, galley, col(self.cfg.key_text, alpha));
+
+        y_bottom - bh - gap
+    }
+
+    /// Режим кейкапов: каждая часть — свой кейкап/иконка, между ними «+».
+    #[allow(clippy::too_many_arguments)]
+    fn draw_keycap_row(
+        &mut self,
+        painter: &egui::Painter,
+        ctx: &egui::Context,
+        parts: &[Part],
+        ax: f32,
+        y_bottom: f32,
+        font_size: f32,
+        gap: f32,
+        alpha: f32,
+        zoom: f32,
+        ppp: f32,
+    ) -> f32 {
+        let cap_h = font_size * 1.75;
+        let icon_h = font_size * 1.6;
+        let sep_gap = font_size * 0.38;
+
+        // 1) Считаем размеры всех частей (в точках)
+        let mut widths: Vec<f32> = Vec::new();
+        for p in parts {
+            match p {
+                Part::Key(label) => {
+                    let galley = painter.layout_no_wrap(
+                        label.clone(),
+                        egui::FontId::proportional(font_size * 0.92),
+                        egui::Color32::WHITE,
+                    );
+                    // ширина кейкапа: подпись + поля, квантование 2pt (кеш текстур)
+                    let w = (galley.size().x * 0.92 + font_size * 0.9 + 2.0) / 2.0 * 2.0;
+                    widths.push(w.max(cap_h * 0.8));
+                }
+                Part::Mouse(_) | Part::Wheel(_) => {
+                    widths.push(icon_h * MOUSE_W / MOUSE_H);
+                }
+            }
+        }
+        let plus_w = {
+            let g = painter.layout_no_wrap(
+                "+".to_string(),
+                egui::FontId::proportional(font_size * 0.8),
                 egui::Color32::WHITE,
             );
-            let gsize = galley.size();
-            let bw = (gsize.x + pad * 2.0) * zoom;
-            let bh = (gsize.y + pad * 2.0) * zoom;
-            let center = egui::Pos2::new(ax, y_bottom - bh / 2.0);
-            let rect = egui::Rect::from_center_size(center, egui::vec2(bw, bh));
+            g.size().x
+        };
+        let n = widths.len();
+        let total_gap = sep_gap * 2.0 * n.saturating_sub(1) as f32;
+        let total_w =
+            (widths.iter().sum::<f32>() + plus_w * n.saturating_sub(1) as f32 + total_gap) * zoom;
+        let row_h = cap_h.max(icon_h) * zoom;
 
-            painter.rect_filled(
-                rect,
-                egui::Rounding::same(self.cfg.key_radius * self.cfg.scale),
-                col(self.cfg.key_bg, alpha),
-            );
-            let text_pos = egui::Pos2::new(center.x - gsize.x / 2.0, center.y - gsize.y / 2.0);
-            painter.galley(text_pos, galley, col(self.cfg.key_text, alpha));
-
-            y_bottom -= bh + gap;
+        // 2) Рисуем слева направо, центрируя по ax
+        let mut x = ax - total_w / 2.0;
+        let cy = y_bottom - row_h / 2.0;
+        let au8 = (alpha * 255.0) as u8;
+        let fade = egui::Color32::from_rgba_premultiplied(au8, au8, au8, au8);
+        for (i, p) in parts.iter().enumerate() {
+            if i > 0 {
+                // разделитель «+»
+                let plus = painter.layout_no_wrap(
+                    "+".to_string(),
+                    egui::FontId::proportional(font_size * 0.8),
+                    col(self.cfg.key_text, alpha),
+                );
+                let ps = plus.size();
+                painter.galley(
+                    egui::Pos2::new(x + sep_gap * zoom, cy - ps.y / 2.0),
+                    plus,
+                    col(self.cfg.key_text, alpha),
+                );
+                x += (sep_gap + plus_w + sep_gap) * zoom;
+            }
+            let w = widths[i] * zoom;
+            match p {
+                Part::Key(label) => {
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(x, cy - cap_h * zoom / 2.0),
+                        egui::vec2(w, cap_h * zoom),
+                    );
+                    if let Some(tex) = self.keycap_texture(ctx, widths[i], cap_h, ppp) {
+                        painter.image(tex.id(), rect, UV, fade);
+                    } else {
+                        // фолбэк, пока SVG растеризуется: обычный фон бабла
+                        painter.rect_filled(
+                            rect,
+                            egui::Rounding::same(6.0),
+                            col(self.cfg.key_bg, alpha),
+                        );
+                    }
+                    let galley = painter.layout_no_wrap(
+                        label.clone(),
+                        egui::FontId::proportional(font_size * 0.92),
+                        egui::Color32::WHITE,
+                    );
+                    let gs = galley.size();
+                    painter.galley(
+                        egui::Pos2::new(rect.center().x - gs.x / 2.0, rect.center().y - gs.y / 2.0),
+                        galley,
+                        col(self.cfg.key_text, alpha),
+                    );
+                }
+                Part::Mouse(button) => {
+                    let icon = match *button {
+                        0 => MouseIcon::Left,
+                        1 => MouseIcon::Right,
+                        _ => MouseIcon::Middle,
+                    };
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(x, cy - icon_h * zoom / 2.0),
+                        egui::vec2(w, icon_h * zoom),
+                    );
+                    if let Some(tex) = self.mouse_icon_texture(ctx, icon, icon_h, ppp) {
+                        painter.image(tex.id(), rect, UV, fade);
+                    } else {
+                        let label = crate::keys::mouse_button_name(*button);
+                        let galley = painter.layout_no_wrap(
+                            label.to_string(),
+                            egui::FontId::proportional(font_size),
+                            egui::Color32::WHITE,
+                        );
+                        painter.galley(
+                            egui::Pos2::new(
+                                rect.center().x - galley.size().x / 2.0,
+                                cy - galley.size().y / 2.0,
+                            ),
+                            galley,
+                            col(self.cfg.key_text, alpha),
+                        );
+                    }
+                }
+                Part::Wheel(up) => {
+                    let icon = if *up {
+                        MouseIcon::WheelUp
+                    } else {
+                        MouseIcon::WheelDown
+                    };
+                    // под стрелку оставляем чуть больше высоты
+                    let wh = icon_h * 1.25;
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(x, cy - wh * zoom / 2.0),
+                        egui::vec2(w, wh * zoom),
+                    );
+                    if let Some(tex) = self.mouse_icon_texture(ctx, icon, icon_h, ppp) {
+                        painter.image(tex.id(), rect, UV, fade);
+                    } else {
+                        let label = crate::keys::wheel_name(*up);
+                        let galley = painter.layout_no_wrap(
+                            label.to_string(),
+                            egui::FontId::proportional(font_size),
+                            egui::Color32::WHITE,
+                        );
+                        painter.galley(
+                            egui::Pos2::new(
+                                rect.center().x - galley.size().x / 2.0,
+                                cy - galley.size().y / 2.0,
+                            ),
+                            galley,
+                            col(self.cfg.key_text, alpha),
+                        );
+                    }
+                }
+            }
+            x += w;
         }
+
+        y_bottom - row_h - gap
     }
 
     fn draw_paused_hint(&self, painter: &egui::Painter, screen: &egui::Rect) {
@@ -286,7 +616,7 @@ impl eframe::App for OverlayApp {
                 self.draw_scroll(&painter, ppp, now);
             }
             if self.cfg.show_keys && !self.bubbles.is_empty() {
-                self.draw_keys(&painter, &screen, now);
+                self.draw_keys(&painter, &screen, ctx, now);
             }
         } else {
             self.draw_paused_hint(&painter, &screen);
@@ -322,6 +652,6 @@ pub fn run() {
     let _ = eframe::run_native(
         crate::winutil::OVERLAY_TITLE,
         options,
-        Box::new(|_cc| Ok(Box::new(OverlayApp::new(cfg)))),
+        Box::new(|cc| Ok(Box::new(OverlayApp::new(cc, cfg)))),
     );
 }

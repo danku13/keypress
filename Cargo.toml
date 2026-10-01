@@ -11,6 +11,7 @@ toml = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 eframe = "0.28"
+egui_extras = { version = "0.28", features = ["svg"] }
 crossbeam-channel = "0.5"
 windows-sys = { version = "0.52", features = [
     "Win32_Foundation",

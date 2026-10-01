@@ -7,7 +7,7 @@
 #[cfg(windows)]
 mod imp {
     use super::super::input::{self, UiEvent};
-    use super::super::keys::{display_name, vk_name, KeyAggregator};
+    use super::super::keys::{display_name, vk_name, KeyAggregator, WheelEv};
     use crossbeam_channel::Sender;
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,8 +116,8 @@ mod imp {
                         _ => None,
                     }
                 });
-                if let Some(text) = ev {
-                    send(UiEvent::Keys { text });
+                if let Some(parts) = ev {
+                    send(UiEvent::Keys { parts });
                 }
             }
         }
@@ -128,31 +128,40 @@ mod imp {
     unsafe extern "system" fn mouse_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if ncode >= 0 {
             let info = &*(lparam as *const MSLLHOOKSTRUCT);
-            if !input::mouse_injected(info.flags) {
-                let msg = wparam as u32;
-                let (x, y) = (info.pt.x as f32, info.pt.y as f32);
-                if let Some(button) = input::click_button(msg) {
-                    send(UiEvent::Click { x, y, button });
-                    // Кнопка мыши появляется и в виджете клавиш: «ЛКМ»,
-                    // «Ctrl + ЛКМ»… СКМ — это нажатие на колёсико.
-                    let text = KB.with(|s| {
-                        let ag = &mut *s.borrow_mut();
-                        ag.mouse_down(button, Instant::now())
-                    });
-                    if let Some(text) = text {
-                        send(UiEvent::Keys { text });
-                    }
-                } else if msg == input::WM_MOUSEWHEEL {
+            let msg = wparam as u32;
+            // Колесо обрабатывается ДО фильтра инжекций: скролл тачпада/драйвера
+            // приходит с LLMHF_INJECTED и раньше глушился (прокрутка не
+            // показывалась). Сами мы ничего не инжектим — луп невозможен;
+            // режем только LOWER_IL (см. input::wheel_rejected, покрыто тестом).
+            if msg == input::WM_MOUSEWHEEL {
+                if !input::wheel_rejected(info.flags) {
+                    let (x, y) = (info.pt.x as f32, info.pt.y as f32);
                     if let Some(up) = input::wheel_up(info.mouseData) {
                         send(UiEvent::Scroll { x, y, up });
-                        // Прокрутка дублируется в виджет: «Колесо ↑/↓»
-                        let text = KB.with(|s| {
+                        // Прокрутка дублируется в виджет: «Колесо ↑/↓» (SVG-иконка)
+                        let ev = KB.with(|s| {
                             let ag = &mut *s.borrow_mut();
                             ag.wheel(up, Instant::now())
                         });
-                        if let Some(text) = text {
-                            send(UiEvent::Keys { text });
+                        match ev {
+                            Some(WheelEv::New(parts)) => send(UiEvent::Keys { parts }),
+                            Some(WheelEv::Extend) => send(UiEvent::WheelPulse { up }),
+                            None => {}
                         }
+                    }
+                }
+            } else if !input::mouse_injected(info.flags) {
+                if let Some(button) = input::click_button(msg) {
+                    let (x, y) = (info.pt.x as f32, info.pt.y as f32);
+                    send(UiEvent::Click { x, y, button });
+                    // Кнопка мыши появляется и в виджете клавиш: «ЛКМ»,
+                    // «Ctrl + ЛКМ»… СКМ — это нажатие на колёсико.
+                    let ev = KB.with(|s| {
+                        let ag = &mut *s.borrow_mut();
+                        ag.mouse_down(button, Instant::now())
+                    });
+                    if let Some(parts) = ev {
+                        send(UiEvent::Keys { parts });
                     }
                 }
             }
@@ -191,8 +200,8 @@ mod imp {
                     let ag = &mut *s.borrow_mut();
                     ag.tick(Instant::now())
                 });
-                if let Some(text) = ev {
-                    send(UiEvent::Keys { text });
+                if let Some(parts) = ev {
+                    send(UiEvent::Keys { parts });
                 }
             }
             TranslateMessage(&msg);

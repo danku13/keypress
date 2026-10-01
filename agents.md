@@ -64,25 +64,46 @@
    модификаторы в held-set; «Ctrl + C» собирается при нажатии обычной клавиши;
    одиночный модификатор показывается через 280 мс (WM_TIMER), если за это
    время не пришла обычная клавиша; если зажато несколько модификаторов —
-   таймаут показывает весь комбо («Ctrl + Shift»).
+   таймаут показывает весь комбо («Ctrl + Shift»). Комбо возвращается
+   структурой `Vec<Part>` (Key/Mouse/Wheel), а не строкой — виджет рисует
+   мышь/колесо SVG-иконками (icons.rs), текст собирается `combo_text`.
+   Прокрутка: `WheelEv::New/Extend` — долгий скролл продлевает строку
+   (WheelPulse), а не плодит новые.
 7. **Цвета хранятся как `[f32; 4]` прямой альфы**, при отрисовке конвертируются
    в premultiplied (`fx::premultiply` + `Color32::from_rgba_premultiplied`) —
-   egui так и ждет.
-8. **TDD/тесты**: вся чистая логика вынесена в кроссплатформенные модули
-   `keys.rs`, `input.rs`, `fx.rs`, `config.rs` + диспетчер в `main.rs`.
-   `cargo test` (57 тестов) выполняется прямо на Linux/CI без Windows;
-   GUI-клей (hooks/winutil/overlay/settings) под `#[cfg(windows)]` и
-   `eframe`/`crossbeam` в `[target.'cfg(windows)'.dependencies]`,
-   проверяется `cargo check --target x86_64-pc-windows-gnu`.
+   egui так и ждет. ЛОВУШКА (v0.3): egui::Color32 — PREMULTIPLIED; передача
+   пикеру unmultiplied + чтение обратно как прямого умножает RGB на альфу
+   каждый кадр — цвет «съезжает в чёрный». Фикс: color.rs (split/join),
+   пикер — непрозрачный RGB (color_edit_button_srgb) + слайдер альфы.
+8. **SVG-иконки** (icons.rs, чистый модуль с тестами): мышь по мотивам
+   freesvg.org left-click-right-click (ЛКМ/ПКМ/СКМ/колесо↑/колесо↓) и
+   кейкапы «вид сверху» (включаемый режим cfg.keycap_style, дефолт —
+   классический текст на бабле). SVG-строки с цветами из конфига уходят в
+   egui_extras (svg) через bytes://*.svg (ctx.include_bytes) и растеризуются
+   SizeHint::Size в физических пикселях (чёткость при любом ppp); кеш текстур
+   по URI. Фолбэк — текст, пока текстура не готова.
+9. **Колесо и инжекции**: скролл тачпада/драйверов приходит с LLMHF_INJECTED
+   и раньше глушился — прокрутка не показывалась. Теперь wheel-ветка хука
+   обрабатывается ДО фильтра инжекций и режет только LOWER_IL
+   (input::wheel_rejected). Кнопки по-прежнему фильтруют LLMHF_INJECTED.
+10. **TDD/тесты**: вся чистая логика вынесена в кроссплатформенные модули
+   `keys.rs`, `input.rs`, `fx.rs`, `config.rs`, `color.rs`, `icons.rs` +
+   диспетчер в `main.rs`. `cargo test` (73 теста) выполняется прямо на
+   Linux/CI без Windows; GUI-клей (hooks/winutil/overlay/settings) под
+   `#[cfg(windows)]` и `eframe`/`egui_extras`/`crossbeam` в
+   `[target.'cfg(windows)'.dependencies]`, проверяется
+   `cargo check --target x86_64-pc-windows-gnu`.
    Разработка велась строго RED → GREEN: сначала падающие тесты, потом код.
 
 ## Ключевые файлы
 
 ```
 src/main.rs     — диспетчер режимов (decide_mode тестируем) + автоспавн панели
-src/config.rs   — Config, load/save toml, normalized() клампинг, дефолты
-src/input.rs    — UiEvent + чистые хелперы: флаги инжекций, кнопки, колесо
-src/keys.rs     — таблицы VK-имен + KeyAggregator (комбо, мышь, колесо) — чистые, тесты
+src/config.rs   — Config (вкл. keycap_style), load/save toml, normalized(), дефолты
+src/input.rs    — UiEvent (Keys{parts}/WheelPulse) + хелперы: инжекции, кнопки, колесо
+src/keys.rs     — VK-имена + Part/WheelEv + KeyAggregator (комбо, мышь, колесо)
+src/icons.rs    — SVG-шаблоны: мышь (ЛКМ/ПКМ/СКМ/колесо) и кейкапы — чистый, тесты
+src/color.rs    — конверсии цвета конфиг<->пикер/SVG (анти-дрейф в чёрный) — тесты
 src/fx.rs       — чистая математика эффектов: premultiply, альфа, зум, радиусы
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)
@@ -93,7 +114,7 @@ src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!
 ## Сборка, тесты, проверка
 
 ```bat
-cargo test                                        :: 41 unit-тест (не требует Windows)
+cargo test                                        :: 73 unit-теста (не требует Windows)
 cargo run --release                               :: оверлей + панель
 cargo run --release -- --settings                 :: только панель
 cargo check --target x86_64-pc-windows-gnu        :: кросс-проверка клея

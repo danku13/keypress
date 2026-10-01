@@ -25,6 +25,10 @@ pub struct Config {
     /// Показывать символы кириллицы, когда активна русская (или другая
     /// кириллическая) раскладка. Иначе — всегда английские имена VK.
     pub show_cyrillic: bool,
+    /// Режим «кейкапы»: клавиши рисуются SVG-кейкапами (вид сверху) по одной
+    /// на клавишу, через «+». По умолчанию ВЫКЛЮЧЕН — основной вариант
+    /// (текст на фоновом бабле) не трогается.
+    pub keycap_style: bool,
     /// Сколько последних значений держать в виджете клавиш (1..10)
     pub max_keys: usize,
     /// Сколько секунд висит комбо на экране
@@ -50,6 +54,7 @@ impl Default for Config {
             show_clicks: true,
             show_scroll: true,
             show_cyrillic: true,
+            keycap_style: false,
             max_keys: 4,
             key_duration: 1.2,
             key_radius: 10.0,
@@ -225,6 +230,8 @@ mod tests {
         let c = Config::default();
         assert!(c.show_cyrillic);
         assert_eq!(c.max_keys, 4);
+        // кейкапы — включаемый режим, основной вариант по умолчанию
+        assert!(!c.keycap_style);
     }
 
     #[test]
@@ -235,6 +242,18 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(c.show_cyrillic);
         assert_eq!(c.max_keys, 4);
+        assert!(!c.keycap_style);
+    }
+
+    #[test]
+    fn keycap_style_roundtrip() {
+        let path = tmp_path("keycap");
+        let mut c = Config::default();
+        c.keycap_style = true;
+        save_to(&path, &c).expect("save failed");
+        let loaded = load_from(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(loaded.keycap_style);
     }
 
     #[test]

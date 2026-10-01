@@ -1,9 +1,14 @@
 /// События, которые поток хуков отправляет окну-оверлею.
+use crate::keys::Part;
+
 #[cfg_attr(not(windows), allow(dead_code))] // используется Windows-кодом
 #[derive(Debug, Clone)]
 pub enum UiEvent {
-    /// Показать комбо. Текст уже собран, например "Ctrl + C".
-    Keys { text: String },
+    /// Показать комбо. Части уже собраны, например [Ctrl, C].
+    Keys { parts: Vec<Part> },
+    /// Колесо продолжает крутиться в ту же сторону — продлить показ
+    /// последней строки прокрутки (up — направление).
+    WheelPulse { up: bool },
     /// Клик мышью. Координаты — физические пиксели экрана.
     /// button: 0 — левая, 1 — правая, 2 — средняя (задел на разные цвета/формы).
     Click {
@@ -32,6 +37,9 @@ pub const WM_MOUSEWHEEL: u32 = 0x020A;
 pub const LLKHF_INJECTED: u32 = 0x10;
 /// Флаг MSLLHOOKSTRUCT: событие сгенерировано программно.
 pub const LLMHF_INJECTED: u32 = 0x01;
+/// Флаг MSLLHOOKSTRUCT: инжекция процессом с более низким уровнем доверия
+/// (UIPI). Реальное оборудование никогда не ставит ни одного из этих флагов.
+pub const LLMHF_LOWER_IL_INJECTED: u32 = 0x02;
 
 /// Событие клавиатуры инжектировано? Такое игнорируем (иначе зацикливание).
 pub fn kb_injected(flags: u32) -> bool {
@@ -41,6 +49,15 @@ pub fn kb_injected(flags: u32) -> bool {
 /// Событие мыши инжектировано?
 pub fn mouse_injected(flags: u32) -> bool {
     flags & LLMHF_INJECTED != 0
+}
+
+/// Прокрутка колеса: какие события РЕЖЕМ.
+/// Скролл тачпадов и некоторых драйверов приходит с флагом LLMHF_INJECTED
+/// (0x01) — раньше он глушился, и прокрутка в виджете не работала. Сами мы
+/// ничего не инжектим, так что зацикливание невозможно: пропускаем обычную
+/// инжекцию и режем только LOWER_IL (инжекция из менее доверенного процесса).
+pub fn wheel_rejected(flags: u32) -> bool {
+    flags & LLMHF_LOWER_IL_INJECTED != 0
 }
 
 /// Сообщение мыши -> номер кнопки (0 левая, 1 правая, 2 средняя).
@@ -79,6 +96,14 @@ mod tests {
         assert!(!mouse_injected(0));
         assert!(mouse_injected(LLMHF_INJECTED));
         assert!(!mouse_injected(0x02));
+    }
+
+    #[test]
+    fn wheel_events_are_not_rejected_for_touchpads() {
+        assert!(!wheel_rejected(0)); // оборудование
+        assert!(!wheel_rejected(LLMHF_INJECTED)); // тачпад/драйвер — ИСПРАВЛЕНИЕ
+        assert!(wheel_rejected(LLMHF_LOWER_IL_INJECTED)); // недоверенный процесс
+        assert!(wheel_rejected(LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED));
     }
 
     #[test]
