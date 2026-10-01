@@ -9,7 +9,7 @@ pub enum ClickShape {
     Square,
 }
 
-/// Конфигурация. Хранится в keyviz-lite.toml рядом с exe.
+/// Конфигурация. Хранится в keypress.toml рядом с exe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -22,6 +22,11 @@ pub struct Config {
     pub show_keys: bool,
     pub show_clicks: bool,
     pub show_scroll: bool,
+    /// Показывать символы кириллицы, когда активна русская (или другая
+    /// кириллическая) раскладка. Иначе — всегда английские имена VK.
+    pub show_cyrillic: bool,
+    /// Сколько последних значений держать в виджете клавиш (1..10)
+    pub max_keys: usize,
     /// Сколько секунд висит комбо на экране
     pub key_duration: f32,
     /// Скругление углов клавиш (0..40)
@@ -44,6 +49,8 @@ impl Default for Config {
             show_keys: true,
             show_clicks: true,
             show_scroll: true,
+            show_cyrillic: true,
+            max_keys: 4,
             key_duration: 1.2,
             key_radius: 10.0,
             click_shape: ClickShape::Ring,
@@ -61,10 +68,10 @@ impl Default for Config {
 pub fn config_path() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            return dir.join("keyviz-lite.toml");
+            return dir.join("keypress.toml");
         }
     }
-    PathBuf::from("keyviz-lite.toml")
+    PathBuf::from("keypress.toml")
 }
 
 /// Ограничение значений разумными пределами (совпадает с лимитами слайдеров панели).
@@ -75,6 +82,7 @@ pub fn normalized(mut cfg: Config) -> Config {
     cfg.pos_y = clamp(cfg.pos_y, 0.0, 1.0);
     cfg.key_duration = clamp(cfg.key_duration, 0.5, 5.0);
     cfg.key_radius = clamp(cfg.key_radius, 0.0, 40.0);
+    cfg.max_keys = cfg.max_keys.clamp(1, 10);
     for c in [
         &mut cfg.key_bg,
         &mut cfg.key_text,
@@ -116,7 +124,7 @@ mod tests {
     use super::*;
 
     fn tmp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("keyviz-test-{}-{}.toml", tag, std::process::id()))
+        std::env::temp_dir().join(format!("keypress-test-{}-{}.toml", tag, std::process::id()))
     }
 
     #[test]
@@ -210,6 +218,37 @@ mod tests {
         let c = normalized(c);
         assert_eq!(c.scale, 0.5);
         assert_eq!(c.key_duration, 0.5);
+    }
+
+    #[test]
+    fn new_options_defaults() {
+        let c = Config::default();
+        assert!(c.show_cyrillic);
+        assert_eq!(c.max_keys, 4);
+    }
+
+    #[test]
+    fn partial_file_fills_new_option_defaults() {
+        let path = tmp_path("partial-new");
+        std::fs::write(&path, "scale = 1.5\n").unwrap();
+        let c = load_from(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(c.show_cyrillic);
+        assert_eq!(c.max_keys, 4);
+    }
+
+    #[test]
+    fn normalize_clamps_max_keys() {
+        let c = normalized(Config {
+            max_keys: 0,
+            ..Config::default()
+        });
+        assert_eq!(c.max_keys, 1);
+        let c = normalized(Config {
+            max_keys: 99,
+            ..Config::default()
+        });
+        assert_eq!(c.max_keys, 10);
     }
 
     #[test]

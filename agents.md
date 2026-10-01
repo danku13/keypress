@@ -1,4 +1,4 @@
-# agents.md — контекст проекта keypress (keyviz-lite)
+# agents.md — контекст проекта keypress
 
 Этот файл — вводные для AI-агентов и новых разработчиков. Читай перед любыми изменениями.
 
@@ -25,7 +25,7 @@
 | UI/рендер | eframe 0.28 + egui (wgpu, default features) |
 | Win API | windows-sys 0.52 (нативные low-level хуки, не rdev) |
 | Потоки | std::thread + crossbeam-channel |
-| Конфиг | serde + toml → `keyviz-lite.toml` рядом с exe |
+| Конфиг | serde + toml → `keypress.toml` рядом с exe |
 | Трей/иконка | нет (горячие клавиши вместо трея) |
 
 ## Архитектурные решения и почему
@@ -56,7 +56,7 @@
    этого не делает — после включения клик-тру оверлей стал целиком
    невидимым. Фикс: `apply_overlay_styles()` каждый кадр также вызывает
    `SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)`.
-5. **IPC = файл конфига**: панель настроек пишет `keyviz-lite.toml`,
+5. **IPC = файл конфига**: панель настроек пишет `keypress.toml`,
    оверлей проверяет mtime каждые 300 мс и перечитывает. Конфиг при загрузке
    прогоняется через `normalized()` (клампинг в диапазоны слайдеров — защита
    от ручной правки toml).
@@ -70,7 +70,7 @@
    egui так и ждет.
 8. **TDD/тесты**: вся чистая логика вынесена в кроссплатформенные модули
    `keys.rs`, `input.rs`, `fx.rs`, `config.rs` + диспетчер в `main.rs`.
-   `cargo test` (41 тест) выполняется прямо на Linux/CI без Windows;
+   `cargo test` (57 тестов) выполняется прямо на Linux/CI без Windows;
    GUI-клей (hooks/winutil/overlay/settings) под `#[cfg(windows)]` и
    `eframe`/`crossbeam` в `[target.'cfg(windows)'.dependencies]`,
    проверяется `cargo check --target x86_64-pc-windows-gnu`.
@@ -82,7 +82,7 @@
 src/main.rs     — диспетчер режимов (decide_mode тестируем) + автоспавн панели
 src/config.rs   — Config, load/save toml, normalized() клампинг, дефолты
 src/input.rs    — UiEvent + чистые хелперы: флаги инжекций, кнопки, колесо
-src/keys.rs     — таблицы VK-имен + KeyAggregator (комбо) — чистые, тесты
+src/keys.rs     — таблицы VK-имен + KeyAggregator (комбо, мышь, колесо) — чистые, тесты
 src/fx.rs       — чистая математика эффектов: premultiply, альфа, зум, радиусы
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)

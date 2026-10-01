@@ -1,8 +1,8 @@
-//! keyviz-lite — показывает нажатия клавиш, клики мыши и прокрутку на экране.
+//! keypress — показывает нажатия клавиш, клики мыши и прокрутку на экране.
 //!
 //! Режимы запуска:
-//!   keyviz-lite.exe              — оверлей + панель настроек (если ещё не открыта)
-//!   keyviz-lite.exe --settings   — только панель настроек
+//!   keypress.exe              — оверлей + панель настроек (если ещё не открыта)
+//!   keypress.exe --settings   — только панель настроек
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // Чистые кроссплатформенные модули (тестируются на Linux через cargo test)
@@ -72,7 +72,7 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    println!("keyviz-lite: графический режим доступен только на Windows.");
+    println!("keypress: графический режим доступен только на Windows.");
     println!("Сборка: cargo build --release --target x86_64-pc-windows-gnu");
 }
 
@@ -86,16 +86,13 @@ mod tests {
 
     #[test]
     fn no_args_launches_overlay() {
-        assert_eq!(
-            decide_mode(&args(&["keyviz-lite.exe"])),
-            LaunchMode::Overlay
-        );
+        assert_eq!(decide_mode(&args(&["keypress.exe"])), LaunchMode::Overlay);
     }
 
     #[test]
     fn settings_flag_opens_panel() {
         assert_eq!(
-            decide_mode(&args(&["keyviz-lite.exe", "--settings"])),
+            decide_mode(&args(&["keypress.exe", "--settings"])),
             LaunchMode::Settings
         );
     }
@@ -103,7 +100,7 @@ mod tests {
     #[test]
     fn bare_word_settings_also_opens_panel() {
         assert_eq!(
-            decide_mode(&args(&["keyviz-lite.exe", "settings"])),
+            decide_mode(&args(&["keypress.exe", "settings"])),
             LaunchMode::Settings
         );
     }
@@ -111,7 +108,7 @@ mod tests {
     #[test]
     fn unknown_args_default_to_overlay() {
         assert_eq!(
-            decide_mode(&args(&["keyviz-lite.exe", "--whatever", "x"])),
+            decide_mode(&args(&["keypress.exe", "--whatever", "x"])),
             LaunchMode::Overlay
         );
     }

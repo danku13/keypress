@@ -8,8 +8,8 @@ mod imp {
         WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
     };
 
-    pub const OVERLAY_TITLE: &str = "keyviz-lite overlay";
-    pub const SETTINGS_TITLE: &str = "Keystro-lite — настройки";
+    pub const OVERLAY_TITLE: &str = "keypress overlay";
+    pub const SETTINGS_TITLE: &str = "Keypress — настройки";
 
     fn utf16z(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -77,8 +77,8 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    pub const OVERLAY_TITLE: &str = "keyviz-lite overlay";
-    pub const SETTINGS_TITLE: &str = "Keystro-lite — настройки";
+    pub const OVERLAY_TITLE: &str = "keypress overlay";
+    pub const SETTINGS_TITLE: &str = "Keypress — настройки";
     pub fn apply_overlay_styles() {}
     pub fn stop_overlay() {}
     pub fn overlay_running() -> bool {

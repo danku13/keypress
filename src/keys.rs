@@ -81,11 +81,52 @@ pub fn vk_name(vk: u32) -> Option<&'static str> {
     }
 }
 
+// ---- Кириллица и мышь в виджете клавиш ----
+
+/// Это кириллический символ (включая Ё/ё)?
+pub fn is_cyrillic(c: char) -> bool {
+    matches!(c, '\u{0400}'..='\u{04FF}')
+}
+
+/// Имя для показа: при включённой настройке и кириллическом символе активной
+/// раскладки — сам символ (в верхнем регистре), иначе английское имя VK.
+pub fn display_name(base: &str, unicode: Option<char>, show_cyrillic: bool) -> String {
+    match unicode {
+        Some(c) if show_cyrillic && is_cyrillic(c) => c.to_uppercase().to_string(),
+        _ => base.to_string(),
+    }
+}
+
+/// Кнопка мыши (0 — левая, 1 — правая, 2 — средняя) -> имя в виджете клавиш.
+/// Средняя кнопка — это и есть нажатие на колёсико.
+pub fn mouse_button_name(button: u8) -> &'static str {
+    match button {
+        0 => "ЛКМ",
+        1 => "ПКМ",
+        _ => "СКМ",
+    }
+}
+
+/// Прокрутка колесика -> имя в виджете клавиш.
+pub fn wheel_name(up: bool) -> &'static str {
+    if up {
+        "Колесо ↑"
+    } else {
+        "Колесо ↓"
+    }
+}
+
+/// Окно троттлинга прокрутки: повторная прокрутка в ту же сторону в пределах
+/// этого времени не добавляет новую строку в виджет (иначе сплошной скролл
+/// зальёт стопку).
+pub const WHEEL_THROTTLE_MS: u64 = 250;
+
 /// Агрегатор нажатий в комбо-строки вида "Ctrl + Shift + C".
 #[derive(Debug, Default)]
 pub struct KeyAggregator {
     held: std::collections::HashSet<u32>,
     pending: Option<(&'static str, std::time::Instant)>,
+    last_wheel: Option<(bool, std::time::Instant)>,
 }
 
 impl KeyAggregator {
@@ -113,7 +154,20 @@ impl KeyAggregator {
     }
 
     /// Нажата клавиша (WM_KEYDOWN/WM_SYSKEYDOWN). Возвращает готовый текст комбо.
+    /// На Windows хук зовёт key_down_named (имя зависит от раскладки);
+    /// этот вариант — прямое использование VK-таблицы.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn key_down(&mut self, vk: u32, now: std::time::Instant) -> Option<String> {
+        self.key_down_named(vk, vk_name(vk), now)
+    }
+
+    /// Как key_down, но имя клавиши уже разрешено хуком (раскладка/кириллица).
+    pub fn key_down_named(
+        &mut self,
+        vk: u32,
+        name: Option<&str>,
+        now: std::time::Instant,
+    ) -> Option<String> {
         if let Some(mname) = mod_name(vk) {
             if !self.held.contains(&vk) {
                 self.held.insert(vk);
@@ -127,8 +181,10 @@ impl KeyAggregator {
         self.held.insert(vk);
         // Комбо поглощает «одиночный» модификатор
         self.pending = None;
-        vk_name(vk).map(|name| {
-            let mut parts = self.current_mods();
+        // Имя не передано хуком -> берём таблицу VK (английская раскладка)
+        let name = name.or_else(|| vk_name(vk));
+        name.map(|name| {
+            let mut parts: Vec<&str> = self.current_mods();
             parts.push(name);
             parts.join(" + ")
         })
@@ -137,6 +193,36 @@ impl KeyAggregator {
     /// Отпущена клавиша (WM_KEYUP/WM_SYSKEYUP).
     pub fn key_up(&mut self, vk: u32) {
         self.held.remove(&vk);
+    }
+
+    /// Нажата кнопка мыши: ЛКМ/ПКМ/СКМ (СКМ = нажатие на колёсико).
+    /// Комбинируется с зажатыми модификаторами: «Ctrl + ЛКМ».
+    pub fn mouse_down(&mut self, button: u8, _now: std::time::Instant) -> Option<String> {
+        // Кнопки не держим в held-наборе: авто-повтора у мыши нет,
+        // и кнопка не выступает модификатором для последующих событий.
+        self.pending = None;
+        let mut parts: Vec<&str> = self.current_mods();
+        parts.push(mouse_button_name(button));
+        Some(parts.join(" + "))
+    }
+
+    /// Прокрутка колесика («Колесо ↑/↓»), комбинируется с модификаторами.
+    /// Повтор в ту же сторону в пределах WHEEL_THROTTLE_MS не спамит
+    /// (и окно троттлинга продлевается, пока скролл продолжается).
+    pub fn wheel(&mut self, up: bool, now: std::time::Instant) -> Option<String> {
+        if let Some((last_up, at)) = self.last_wheel {
+            if last_up == up
+                && now.duration_since(at) < std::time::Duration::from_millis(WHEEL_THROTTLE_MS)
+            {
+                self.last_wheel = Some((up, now));
+                return None;
+            }
+        }
+        self.last_wheel = Some((up, now));
+        self.pending = None;
+        let mut parts: Vec<&str> = self.current_mods();
+        parts.push(wheel_name(up));
+        Some(parts.join(" + "))
     }
 
     /// Периодический тик (~60 мс): показывает одиночный модификатор по таймауту.
@@ -342,5 +428,127 @@ mod tests {
         let t = t0();
         ag.key_down(0x5B, t); // Win
         assert_eq!(ag.key_down(0x44, t), Some("Win + D".into()));
+    }
+
+    #[test]
+    fn cyrillic_detection() {
+        assert!(is_cyrillic('ф'));
+        assert!(is_cyrillic('Ё'));
+        assert!(is_cyrillic('Я'));
+        assert!(!is_cyrillic('F'));
+        assert!(!is_cyrillic('1'));
+        assert!(!is_cyrillic(';'));
+    }
+
+    #[test]
+    fn display_name_prefers_cyrillic_when_enabled() {
+        assert_eq!(display_name("A", Some('ф'), true), "Ф");
+        assert_eq!(display_name("A", Some('Ж'), true), "Ж");
+        assert_eq!(display_name("A", Some('ё'), true), "Ё");
+        assert_eq!(display_name("A", Some('ф'), false), "A"); // настройка выключена
+        assert_eq!(display_name("A", None, true), "A"); // символ не определён
+        assert_eq!(display_name(";", Some('a'), true), ";"); // латиница не подменяет имя
+    }
+
+    #[test]
+    fn mouse_button_names() {
+        assert_eq!(mouse_button_name(0), "ЛКМ");
+        assert_eq!(mouse_button_name(1), "ПКМ");
+        assert_eq!(mouse_button_name(2), "СКМ"); // СКМ = нажатие на колёсико
+    }
+
+    #[test]
+    fn wheel_names() {
+        assert_eq!(wheel_name(true), "Колесо ↑");
+        assert_eq!(wheel_name(false), "Колесо ↓");
+    }
+
+    #[test]
+    fn mouse_down_plain() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        assert_eq!(ag.mouse_down(0, t), Some("ЛКМ".into()));
+    }
+
+    #[test]
+    fn mouse_down_combo_with_ctrl() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.key_down(0xA2, t); // Ctrl
+        assert_eq!(ag.mouse_down(0, t), Some("Ctrl + ЛКМ".into()));
+    }
+
+    #[test]
+    fn mouse_down_absorbs_pending_modifier() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.key_down(0xA0, t); // Shift (pending)
+        assert_eq!(ag.mouse_down(0, t), Some("Shift + ЛКМ".into()));
+        // одиночный модификатор после этого больше не показывается
+        assert_eq!(ag.tick(t + Duration::from_millis(400)), None);
+    }
+
+    #[test]
+    fn mouse_down_multi_mods() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.key_down(0xA2, t); // Ctrl
+        ag.key_down(0xA0, t); // Shift
+        assert_eq!(ag.mouse_down(1, t), Some("Ctrl + Shift + ПКМ".into()));
+    }
+
+    #[test]
+    fn wheel_plain_and_throttle() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        assert_eq!(ag.wheel(false, t), Some("Колесо ↓".into()));
+        // в окне троттлинга та же сторона не создаёт новую строку
+        assert_eq!(ag.wheel(false, t + Duration::from_millis(200)), None);
+        // окно троттлинга истекло (последнее событие было на t+200)
+        assert_eq!(
+            ag.wheel(false, t + Duration::from_millis(460)),
+            Some("Колесо ↓".into())
+        );
+    }
+
+    #[test]
+    fn wheel_opposite_direction_not_throttled() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.wheel(false, t);
+        assert_eq!(
+            ag.wheel(true, t + Duration::from_millis(50)),
+            Some("Колесо ↑".into())
+        );
+    }
+
+    #[test]
+    fn wheel_combo_with_ctrl() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.key_down(0xA2, t); // Ctrl
+        assert_eq!(ag.wheel(false, t), Some("Ctrl + Колесо ↓".into()));
+    }
+
+    #[test]
+    fn key_down_named_uses_layout_name() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        assert_eq!(ag.key_down_named(0x41, Some("Ф"), t), Some("Ф".into()));
+        // имя не определено -> берём таблицу VK
+        assert_eq!(ag.key_down_named(0x42, None, t), Some("B".into()));
+        // авто-повтор по VK по-прежнему глушится
+        assert_eq!(ag.key_down_named(0x41, Some("Ф"), t), None);
+    }
+
+    #[test]
+    fn key_down_named_combo_with_modifier() {
+        let mut ag = KeyAggregator::new();
+        let t = t0();
+        ag.key_down(0xA2, t); // Ctrl
+        assert_eq!(
+            ag.key_down_named(0x41, Some("Ф"), t),
+            Some("Ctrl + Ф".into())
+        );
     }
 }

@@ -9,7 +9,6 @@ use crossbeam_channel::Receiver;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
-const MAX_BUBBLES: usize = 4;
 const CLICK_LIFE: f32 = 0.55;
 const SCROLL_LIFE: f32 = 0.5;
 
@@ -52,6 +51,7 @@ fn col(c: [f32; 4], mul: f32) -> egui::Color32 {
 
 impl OverlayApp {
     pub fn new(cfg: Config) -> Self {
+        crate::hooks::set_show_cyrillic(cfg.show_cyrillic);
         let (tx, rx) = crossbeam_channel::unbounded();
         spawn_hooks(tx);
         Self {
@@ -78,7 +78,8 @@ impl OverlayApp {
                         text,
                         born: Instant::now(),
                     });
-                    if self.bubbles.len() > MAX_BUBBLES {
+                    // Количество строк в стопке настраивается (cfg.max_keys)
+                    if self.bubbles.len() > self.cfg.max_keys {
                         self.bubbles.remove(0);
                     }
                 }
@@ -124,6 +125,7 @@ impl OverlayApp {
         if mtime != self.cfg_mtime {
             self.cfg_mtime = mtime;
             self.cfg = load();
+            crate::hooks::set_show_cyrillic(self.cfg.show_cyrillic);
         }
     }
 

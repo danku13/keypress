@@ -1768,7 +1768,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyviz-lite"
+name = "keypress"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",

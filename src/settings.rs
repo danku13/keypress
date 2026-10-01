@@ -1,5 +1,5 @@
 //! Минимальная панель настроек: размер, позиция, формы, цвета.
-//! Правит keyviz-lite.toml, оверлей подхватывает изменения на лету.
+//! Правит keypress.toml, оверлей подхватывает изменения на лету.
 
 use crate::config::{ClickShape, Config};
 use crate::winutil;
@@ -61,7 +61,7 @@ impl eframe::App for SettingsApp {
         let mut changed = false;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Keystro-lite — настройки");
+            ui.heading("Keypress — настройки");
             ui.add_space(4.0);
             ui.label(format!(
                 "Оверлей: {}",
@@ -108,6 +108,15 @@ impl eframe::App for SettingsApp {
                     .changed();
                 changed |= ui
                     .checkbox(&mut self.cfg.show_keys, "Показывать клавиши")
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut self.cfg.max_keys, 1..=10).text("Строк в виджете"))
+                    .changed();
+                changed |= ui
+                    .checkbox(
+                        &mut self.cfg.show_cyrillic,
+                        "Кириллица (символы русской раскладки)",
+                    )
                     .changed();
             });
 
@@ -166,7 +175,7 @@ impl eframe::App for SettingsApp {
             ui.add_space(8.0);
             ui.label("Горячие клавиши: Ctrl+Alt+K — пауза/показ, Ctrl+Alt+Q — выход");
             ui.label(
-                "Настройки сохраняются автоматически в keyviz-lite.toml рядом с программой \
+                "Настройки сохраняются автоматически в keypress.toml рядом с программой \
                  и применяются на лету.",
             );
         });
