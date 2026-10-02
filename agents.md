@@ -27,6 +27,8 @@
 | Потоки | std::thread + crossbeam-channel |
 | Конфиг | serde + toml → `keypress.toml` рядом с exe |
 | Трей/иконка | своя реализация (tray.rs): Shell_NotifyIconW + message-only окно, v0.5 |
+| Лицензия | MIT (LICENSE); license/description/repository в Cargo.toml, v0.5.1 |
+| CI | GitHub Actions (.github/workflows/build.yml): fmt+тесты на ubuntu, сборки windows-msvc/linux/macos, артефакты запуска, release по тегам v* |
 
 ## Архитектурные решения и почему
 
@@ -136,6 +138,15 @@
    процесс, иконка там не нужна). UiEvent::Quit («Выход»/Ctrl+Alt+Q): оверлей
    сначала шлёт WM_CLOSE окну панели (winutil::stop_settings — иначе панель,
    как отдельный процесс, оставалась висеть), затем закрывается сам.
+16. **Лицензия + CI (v0.5.1)**: лицензия MIT (LICENSE). GitHub Actions
+   (.github/workflows/build.yml): job test (fmt --check + cargo test, ubuntu —
+   чистые модули тестируются везде) → матрица build: windows-latest
+   (x86_64-pc-windows-msvc — канонический exe), ubuntu (x86_64-gnu) и
+   macos-latest (aarch64) — там собирается только заглушка (eframe под
+   cfg(windows), тянутся serde+toml). Артефакты через upload-artifact;
+   пуш тега v* — softprops/action-gh-release (permissions contents: write).
+   fail-fast: false — падение одной платформы не отменяет остальные.
+   build.rs в CI безопасен: без KEYPRESS_UIACCESS=1 ранний выход.
 
 ## Ключевые файлы
 

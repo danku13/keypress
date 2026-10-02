@@ -1,5 +1,8 @@
 # keypress
 
+[![build](https://github.com/danku13/keypress/actions/workflows/build.yml/badge.svg)](https://github.com/danku13/keypress/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Показывает на экране нажатия клавиш, кнопки мыши и прокрутку колесика.
 Минималистичный аналог Keystro (https://keystro.app/) для личного использования.
 Windows 10/11 (64-бит), Rust + egui.
@@ -200,3 +203,21 @@ SVG-иконки (мышь/кейкапы) генерируются кодом (
 - При выключенной настройке «Кириллица» имена клавиш всегда английские.
 - Боковые кнопки мыши (X1/X2) в виджете не показываются.
 - Позиция виджета задаётся процентами экрана, а не перетаскиванием мышью.
+
+## Автосборки (GitHub Actions)
+
+Каждый пуш в `main` (и любой PR) проверяется тестами и собирается на трёх
+платформах; архивы доступны в разделе Actions конкретного запуска:
+
+| Артефакт | Платформа |
+|---|---|
+| `keypress-windows.zip` | Windows x64 (MSVC) — основной вариант |
+| `keypress-linux.tar.gz` | Linux x64 — заглушка (GUI только под Windows) |
+| `keypress-macos.tar.gz` | macOS arm64 (Apple Silicon) — заглушка |
+
+Пуш тега `v*` (например `v0.5.1`) дополнительно создаёт GitHub Release
+с этими же архивами: `git tag v0.5.1 && git push origin v0.5.1`.
+
+## Лицензия
+
+MIT — текст в [LICENSE](LICENSE).

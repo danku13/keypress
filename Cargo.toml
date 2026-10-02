@@ -2,6 +2,12 @@
 name = "keypress"
 version = "0.5.1"
 edition = "2021"
+license = "MIT"
+description = "On-screen display of keystrokes, mouse clicks and scroll (Windows overlay)"
+repository = "https://github.com/danku13/keypress"
+readme = "README.md"
+keywords = ["windows", "overlay", "keystrokes", "osd", "egui"]
+categories = ["gui", "os::windows-apis"]
 
 # Чистые модули (config/fx/keys/input) кроссплатформенные — cargo test
 # выполняется прямо на Linux. GUI/хуки собираются только под Windows.
