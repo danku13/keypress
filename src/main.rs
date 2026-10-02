@@ -12,6 +12,7 @@ mod fx;
 mod icons;
 mod input;
 mod keys;
+mod zorder;
 
 // Windows-глацинирование: GUI, хуки и Win API живут только под Windows
 #[cfg(windows)]

@@ -4,8 +4,9 @@
 mod imp {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetWindowLongPtrW, PostMessageW, SetLayeredWindowAttributes,
-        SetWindowLongPtrW, GWL_EXSTYLE, LWA_ALPHA, WM_CLOSE, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+        SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, WM_CLOSE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_EX_TRANSPARENT,
     };
 
     pub const OVERLAY_TITLE: &str = "keypress overlay";
@@ -21,7 +22,8 @@ mod imp {
         unsafe { FindWindowW(std::ptr::null(), t.as_ptr()) != 0 }
     }
 
-    fn find_overlay() -> isize {
+    /// HWND оверлея (0 — окно не найдено); используется и диагностикой zorder.
+    pub fn overlay_hwnd() -> isize {
         let t = utf16z(OVERLAY_TITLE);
         unsafe { FindWindowW(std::ptr::null(), t.as_ptr()) }
     }
@@ -42,10 +44,21 @@ mod imp {
     /// собственный per-pixel альфа-канал egui (прозрачный фон) сохраняется,
     /// а WS_EX_TRANSPARENT продолжает пропускать клики.
     ///
+    /// ВАЖНО 3: winit 0.29 ставит HWND_TOPMOST ОДИН раз при создании окна
+    /// (with_window_level(AlwaysOnTop) -> set_window_level) и больше никогда
+    /// не поднимает. Меню Пуск и Поиск (CoreWindow StartMenuExperienceHost /
+    /// SearchHost) при открытии вставляются в ту же topmost-группу ВЫШЕ нашего
+    /// окна — а оно WS_EX_NOACTIVATE и само вверх не поднимается, поэтому
+    /// кейкапы оказываются под Пуском. Лечение — переутверждать topmost каждый
+    /// кадр: SWP_NOACTIVATE не крадёт фокус (Пуск остаётся активным, можно
+    /// продолжать печатать), SWP_NOMOVE|SWP_NOSIZE не трогают геометрию.
+    /// SWP_SHOWWINDOW намеренно НЕ ставим, чтобы не показать окно, скрытое
+    /// пользователем.
+    ///
     /// Вызываем каждый кадр — переживает любые смены стилей окна
     /// (fullscreen и т.п.).
     pub fn apply_overlay_styles() {
-        let hwnd = find_overlay();
+        let hwnd = overlay_hwnd();
         if hwnd == 0 {
             return;
         }
@@ -57,11 +70,21 @@ mod imp {
             // Без этого вызова слоёное окно невидимо: winit 0.29.15 ставит
             // WS_EX_LAYERED, но атрибуты слоёв не задаёт.
             SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+            // Переутверждение topmost каждый кадр — см. ВАЖНО 3.
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
         }
     }
 
     pub fn stop_overlay() {
-        let hwnd = find_overlay();
+        let hwnd = overlay_hwnd();
         if hwnd == 0 {
             return;
         }
@@ -71,7 +94,7 @@ mod imp {
     }
 
     pub fn overlay_running() -> bool {
-        find_overlay() != 0
+        overlay_hwnd() != 0
     }
 }
 
@@ -81,6 +104,9 @@ mod imp {
     pub const SETTINGS_TITLE: &str = "Keypress — настройки";
     pub fn apply_overlay_styles() {}
     pub fn stop_overlay() {}
+    pub fn overlay_hwnd() -> isize {
+        0
+    }
     pub fn overlay_running() -> bool {
         false
     }

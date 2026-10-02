@@ -108,13 +108,14 @@ src/fx.rs       — чистая математика эффектов: premulti
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)
 src/settings.rs — панель настроек (egui-виджеты)
-src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/остановка оверлея
+src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея
+src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log — чистый + Win-клей, тесты
 ```
 
 ## Сборка, тесты, проверка
 
 ```bat
-cargo test                                        :: 73 unit-теста (не требует Windows)
+cargo test                                        :: 80 unit-тестов (не требует Windows)
 cargo run --release                               :: оверлей + панель
 cargo run --release -- --settings                 :: только панель
 cargo check --target x86_64-pc-windows-gnu        :: кросс-проверка клея

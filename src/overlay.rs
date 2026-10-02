@@ -588,6 +588,8 @@ impl eframe::App for OverlayApp {
         }
         // Каждый кадр: клик-тру + не красть фокус (дёшево, переживает fullscreen-переходы)
         apply_overlay_styles();
+        // Каждый кадр: диагностика z-порядка (активна только при KEYPRESS_DEBUG=1)
+        crate::zorder::debug_tick();
 
         self.drain_events(ctx);
         self.reload_config_if_needed();
