@@ -115,4 +115,21 @@ mod tests {
             LaunchMode::Overlay
         );
     }
+
+    /// UIAccess-манифест на месте и валиден (include_str! на этапе компиляции
+    /// гарантирует само наличие файла; тест — корректность содержимого).
+    #[test]
+    fn uiaccess_manifest_is_valid() {
+        const M: &str = include_str!("../assets/keypress-uiaccess.manifest");
+        assert!(M.trim_start().starts_with("<?xml"), "нет XML-заголовка");
+        assert!(
+            M.contains("requestedExecutionLevel"),
+            "нет requestedExecutionLevel"
+        );
+        assert!(M.contains("uiAccess=\"true\""), "нет uiAccess=\"true\"");
+        assert!(M.contains("asInvoker"), "уровень должен быть asInvoker");
+        // В GUID supportedOS легитимны фигурные скобки — незаполненные шаблоны
+        // ловит двойная скобка {{ (формат-плейсхолдеры).
+        assert!(!M.contains("{{"), "незаполненный шаблон");
+    }
 }

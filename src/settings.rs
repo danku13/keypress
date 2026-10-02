@@ -10,6 +10,9 @@ pub struct SettingsApp {
     cfg: Config,
     overlay_running: bool,
     last_status_check: Option<Instant>,
+    /// Буферы добавления по-клавишной картинки кейкапа
+    cap_key: String,
+    cap_path: String,
 }
 
 /// Цвет из конфига: пикер для НЕПРОЗРАЧНОГО RGB + отдельный слайдер альфы.
@@ -43,6 +46,8 @@ impl SettingsApp {
             cfg: crate::config::load(),
             overlay_running: false,
             last_status_check: None,
+            cap_key: String::new(),
+            cap_path: String::new(),
         }
     }
 }
@@ -124,9 +129,117 @@ impl eframe::App for SettingsApp {
                     changed |= ui
                         .checkbox(
                             &mut self.cfg.keycap_style,
-                            "Кейкапы (SVG, вид сверху) — иначе текст",
+                            "Кейкапы (вид сверху) — иначе текст",
                         )
                         .changed();
+                });
+
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.strong("Мышь (SVG-иконка)");
+                    ui.label("Работает независимо от режима кейкапов.");
+                    changed |= ui
+                        .checkbox(
+                            &mut self.cfg.mouse_icons,
+                            "Мышь и колесо — SVG-иконкой (иначе текст)",
+                        )
+                        .changed();
+                    changed |= color_row(ui, "Корпус мыши:", &mut self.cfg.mouse_body);
+                    changed |= color_row(ui, "Контур мыши:", &mut self.cfg.mouse_outline);
+                    ui.label("Подсветка нажатой кнопки/колеса — цвета кликов и прокрутки.");
+                });
+
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.strong("Кейкапы (режим — галочка «Кейкапы» выше)");
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(&mut self.cfg.keycap_height, 0.5..=2.5)
+                                .text("Высота кейкапа"),
+                        )
+                        .changed();
+
+                    ui.add_space(4.0);
+                    ui.strong("Картинка-кейкап (PNG/JPG/GIF/BMP/ICO/SVG)");
+                    ui.horizontal(|ui| {
+                        if ui.button("Сбросить").clicked() {
+                            self.cfg.keycap_image.clear();
+                            changed = true;
+                        }
+                        ui.label("пусто — стандартный кейкап");
+                    });
+                    changed |= ui
+                        .text_edit_singleline(&mut self.cfg.keycap_image)
+                        .changed();
+                    ui.label(
+                        "Путь к файлу; относительный — от папки с keypress.toml. \
+                         Картинка растягивается на размер кейкапа.",
+                    );
+
+                    ui.add_space(4.0);
+                    ui.strong("Картинки по клавишам (перекрывают общую)");
+                    if !self.cfg.keycap_images.is_empty() {
+                        let keys: Vec<String> = self.cfg.keycap_images.keys().cloned().collect();
+                        for k in keys {
+                            ui.horizontal(|ui| {
+                                ui.monospace(&k);
+                                ui.label("=");
+                                if let Some(v) = self.cfg.keycap_images.get_mut(&k) {
+                                    changed |= ui.text_edit_singleline(v).changed();
+                                }
+                                if ui.small_button("Удалить").clicked() {
+                                    self.cfg.keycap_images.remove(&k);
+                                    changed = true;
+                                }
+                            });
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Клавиша:");
+                        ui.text_edit_singleline(&mut self.cap_key);
+                        ui.label("Файл:");
+                        ui.text_edit_singleline(&mut self.cap_path);
+                        if ui.button("+").clicked()
+                            && !self.cap_key.trim().is_empty()
+                            && !self.cap_path.trim().is_empty()
+                        {
+                            self.cfg.keycap_images.insert(
+                                self.cap_key.trim().to_string(),
+                                self.cap_path.trim().to_string(),
+                            );
+                            self.cap_key.clear();
+                            self.cap_path.clear();
+                            changed = true;
+                        }
+                    });
+                    ui.label(
+                        "Имя клавиши — как в виджете («A», «Ctrl», «Пробел»; \
+                         регистр не важен).",
+                    );
+
+                    ui.add_space(6.0);
+                    ui.strong("Текст на кейкапе");
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(&mut self.cfg.keycap_text_scale, 0.3..=3.0)
+                                .text("Размер текста"),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(&mut self.cfg.keycap_text_dx, -50.0..=50.0)
+                                .text("Сдвиг текста X"),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(&mut self.cfg.keycap_text_dy, -50.0..=50.0)
+                                .text("Сдвиг текста Y"),
+                        )
+                        .changed();
+                    ui.label("Сдвиги в точках: X вправо, Y вниз (от центра кейкапа).");
                 });
 
                 ui.add_space(6.0);
@@ -187,6 +300,8 @@ impl eframe::App for SettingsApp {
                     "Настройки сохраняются автоматически в keypress.toml рядом с программой \
                  и применяются на лету.",
                 );
+                ui.add_space(4.0);
+                ui.label(format!("Keypress v{}", env!("CARGO_PKG_VERSION")));
             });
         });
 

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Манифест UIAccess-сборки keypress (вшивается только при KEYPRESS_UIACCESS=1,
+  см. build.rs).
+
+  uiAccess="true" помещает окна процесса в защищённую z-полосу UIAccess —
+  ВЫШЕ CoreWindow меню Пуск/Поиск (StartMenuExperienceHost/SearchHost),
+  которые Win11 держит над обычными topmost-окнами. Так оверлей виден и при
+  открытом Пуске — тот же механизм, что у osk.exe (экранная клавиатура).
+
+  Требования Windows к процессу с uiAccess="true" (иначе exe просто не
+  запустится):
+    1) файл подписан доверенным сертификатом подписи кода;
+    2) файл лежит в защищённой папке (Program Files, Windows, ...).
+  Оба шага делает make-uiaccess.ps1.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="0.4.0.0" processorArchitecture="*" name="Keypress" type="win32"/>
+  <description>Keypress overlay</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="true"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 и Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>

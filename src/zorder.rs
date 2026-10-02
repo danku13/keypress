@@ -131,6 +131,10 @@ mod imp {
     const THROTTLE: Duration = Duration::from_millis(500);
     const LOG_NAME: &str = "keypress-zdebug.log";
 
+    /// Шапка лога пишется один раз за жизнь процесса: в логе сразу видно,
+    /// какой версией он собран (проверка, что запущена свежая сборка).
+    static HEADER_WRITTEN: OnceLock<()> = OnceLock::new();
+
     struct State {
         start: Instant,
         last_run: Instant,
@@ -147,6 +151,13 @@ mod imp {
         if !enabled {
             return;
         }
+        HEADER_WRITTEN.get_or_init(|| {
+            write_log(&format!(
+                "=== keypress v{} (pid {}) ===",
+                env!("CARGO_PKG_VERSION"),
+                std::process::id()
+            ));
+        });
         let Ok(mut guard) = STATE.lock() else { return };
         let st = guard.get_or_insert_with(|| State {
             start: Instant::now(),

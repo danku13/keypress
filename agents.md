@@ -88,37 +88,66 @@
    (input::wheel_rejected). Кнопки по-прежнему фильтруют LLMHF_INJECTED.
 10. **TDD/тесты**: вся чистая логика вынесена в кроссплатформенные модули
    `keys.rs`, `input.rs`, `fx.rs`, `config.rs`, `color.rs`, `icons.rs` +
-   диспетчер в `main.rs`. `cargo test` (73 теста) выполняется прямо на
+   диспетчер в `main.rs`. `cargo test` (94 теста) выполняется прямо на
    Linux/CI без Windows; GUI-клей (hooks/winutil/overlay/settings) под
-   `#[cfg(windows)]` и `eframe`/`egui_extras`/`crossbeam` в
+   `#[cfg(windows)]` и `eframe`/`egui_extras`/`crossbeam`/`image` в
    `[target.'cfg(windows)'.dependencies]`, проверяется
    `cargo check --target x86_64-pc-windows-gnu`.
    Разработка велась строго RED → GREEN: сначала падающие тесты, потом код.
+11. **Пуск на Win11 (v0.4)**: переутверждение HWND_TOPMOST каждый кадр
+   работает внутри topmost-полосы, но CoreWindow Пуска Windows может держать
+   в защищённой shell-полосе ВЫШЕ любых обычных topmost-окон. Решение —
+   UIAccess-сборка: build.rs при `KEYPRESS_UIACCESS=1` вшивает
+   assets/keypress-uiaccess.manifest (uiAccess="true") через winresource;
+   окна процесса попадают в полосу UIAccess выше полосы оболочки (как
+   osk.exe). Windows запускает uiAccess-exe ТОЛЬКО подписанным и из
+   защищённой папки — это делает make-uiaccess.ps1 (самодписанный
+   сертификат → LocalMachine Root+TrustedPublisher → Set-AuthenticodeSignature
+   → Program Files). Обычная сборка манифест не вшивает вообще.
+12. **Конфиг рядом с exe, но не всегда (v0.4)**: config_path() кешируется;
+   порядок — KEYPRESS_CONFIG (env), папка exe если доступна на запись
+   (пробная запись), иначе %APPDATA%\keypress (uiAccess-установка в
+   Program Files — панель настроек должна сохранять без админа).
+13. **SVG-мышь отделена от кейкапов (v0.4)**: cfg.mouse_icons — независимая
+   галочка (иконки работают и в классике — смешанный бабл текст+иконки,
+   и в кейкапах); cfg.mouse_body/mouse_outline — свои цвета корпуса/контура
+   (дефолт = цвета клавиш, вид как в v0.3).
+14. **Кастомные кейкапы (v0.4)**: cfg.keycap_image (общая) + cfg.keycap_images
+   (BTreeMap по-клавишных; приоритет: точное имя → регистронезависимое →
+   общая). Raster (PNG/JPG/GIF/BMP/ICO) декодируется крейтом image напрямую
+   в ColorImage (egui_extras ImageLoader НЕ включен); SVG — через svg-лоадер,
+   который по исходникам требует URI с расширением .svg. Ключ кеша текстур —
+   FNV-1a(путь+mtime+размер)+растр: замену файла подхватывает без перезапуска.
+   Подпись рисует egui поверх картинки: keycap_text_scale/dx/dy (dx/dy в
+   точках, умножаются на cfg.scale); высота кейкапа — keycap_height.
 
 ## Ключевые файлы
 
 ```
-src/main.rs     — диспетчер режимов (decide_mode тестируем) + автоспавн панели
-src/config.rs   — Config (вкл. keycap_style), load/save toml, normalized(), дефолты
+src/main.rs     — диспетчер режимов (decide_mode тестируем) + автоспавн панели + тест UIAccess-манифеста
+src/config.rs   — Config (вкл. mouse_icons/mouse_body/mouse_outline, keycap_height/keycap_image(s)/keycap_text_*), load/save toml, normalized(), config_path (env→exe-dir→APPDATA), fnv1a, keycap_image_for — тесты
 src/input.rs    — UiEvent (Keys{parts}/WheelPulse) + хелперы: инжекции, кнопки, колесо
 src/keys.rs     — VK-имена + Part/WheelEv + KeyAggregator (комбо, мышь, колесо)
 src/icons.rs    — SVG-шаблоны: мышь (ЛКМ/ПКМ/СКМ/колесо) и кейкапы — чистый, тесты
 src/color.rs    — конверсии цвета конфиг<->пикер/SVG (анти-дрейф в чёрный) — тесты
 src/fx.rs       — чистая математика эффектов: premultiply, альфа, зум, радиусы
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
-src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx)
-src/settings.rs — панель настроек (egui-виджеты)
+src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx); классика текст/смешанная (текст+SVG-иконки), кейкапы с кастом-картинками и позиционированием текста
+src/settings.rs — панель настроек: группы виджет/мышь/кейкапы/клики/скролл/цвета, версия в подвале
 src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея
-src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log — чистый + Win-клей, тесты
+src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log (шапка с версией), чистый + Win-клей, тесты
+build.rs        — вшивает assets/keypress-uiaccess.manifest только при KEYPRESS_UIACCESS=1 (winresource)
+make-uiaccess.ps1 — сборка+сертификат+подпись+Program Files (UIAccess-версия)
 ```
 
 ## Сборка, тесты, проверка
 
 ```bat
-cargo test                                        :: 80 unit-тестов (не требует Windows)
+cargo test                                        :: 94 unit-теста (не требует Windows)
 cargo run --release                               :: оверлей + панель
 cargo run --release -- --settings                 :: только панель
 cargo check --target x86_64-pc-windows-gnu        :: кросс-проверка клея
+KEYPRESS_UIACCESS=1 cargo build --release         :: UIAccess-вариант (см. make-uiaccess.ps1)
 ```
 
 ## Горячие клавиши (зафиксированы)
