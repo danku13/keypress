@@ -282,6 +282,19 @@ impl eframe::App for SettingsApp {
                     changed |= color_row(ui, "Текст клавиш:", &mut self.cfg.key_text);
                 });
 
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.strong("Системный трей");
+                    changed |= ui
+                        .checkbox(
+                            &mut self.cfg.tray_icon,
+                            "Иконка в трее (левый клик — пауза/показ, \
+                             правый — меню: пауза, настройки, выход)",
+                        )
+                        .changed();
+                });
+
                 ui.separator();
 
                 ui.horizontal(|ui| {

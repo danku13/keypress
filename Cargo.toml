@@ -1,6 +1,6 @@
 [package]
 name = "keypress"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 
 # Чистые модули (config/fx/keys/input) кроссплатформенные — cargo test
@@ -33,6 +33,9 @@ windows-sys = { version = "0.52", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_TextServices",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_System_LibraryLoader",
 ] }
 
 [profile.release]

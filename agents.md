@@ -26,7 +26,7 @@
 | Win API | windows-sys 0.52 (нативные low-level хуки, не rdev) |
 | Потоки | std::thread + crossbeam-channel |
 | Конфиг | serde + toml → `keypress.toml` рядом с exe |
-| Трей/иконка | нет (горячие клавиши вместо трея) |
+| Трей/иконка | своя реализация (tray.rs): Shell_NotifyIconW + message-only окно, v0.5 |
 
 ## Архитектурные решения и почему
 
@@ -120,6 +120,20 @@
    FNV-1a(путь+mtime+размер)+растр: замену файла подхватывает без перезапуска.
    Подпись рисует egui поверх картинки: keycap_text_scale/dx/dy (dx/dy в
    точках, умножаются на cfg.scale); высота кейкапа — keycap_height.
+15. **Системный трей (v0.5)**: tray.rs — отдельный поток с message-only
+   окном (HWND_MESSAGE), Shell_NotifyIconW шлёт события мыши в WndProc; тот
+   конвертирует их в TrayAction (чистый action_for_menu_id — тестируемый) и
+   отправляет в ОБЩИЙ с хуками crossbeam-канал как UiEvent::TogglePause/Quit —
+   никаких новых каналов/глобальных состояний. Левый клик — пауза, двойной —
+   настройки (spawn_panel_if_needed), правый — меню (галочка паузы берётся из
+   static PAUSED). Иконка — код (32x32 BGRA SDF-рисование кейкапа с K →
+   CreateDIBSection → CreateIconIndirect). Устойчивость: TaskbarCreated
+   (RegisterWindowMessage) возвращает иконку после перезапуска explorer,
+   ретраи NIM_ADD при старте. Выход: shutdown() после eframe шлёт WM_CLOSE
+   в окно трея → WM_DESTROY удаляет иконку (без «призраков»). Включение/выключение
+   на лету: cfg.tray_icon + OverlayApp::sync_tray() после перечитывания конфига.
+   ВАЖНО: трей живёт в ПРОЦЕССЕ ОВЕРЛЕЯ (панель настроек — отдельный короткоживущий
+   процесс, иконка там не нужна).
 
 ## Ключевые файлы
 
@@ -133,7 +147,8 @@ src/color.rs    — конверсии цвета конфиг<->пикер/SVG 
 src/fx.rs       — чистая математика эффектов: premultiply, альфа, зум, радиусы
 src/hooks.rs    — поток хуков: Win API-клей над keys/input, хоткеи
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx); классика текст/смешанная (текст+SVG-иконки), кейкапы с кастом-картинками и позиционированием текста
-src/settings.rs — панель настроек: группы виджет/мышь/кейкапы/клики/скролл/цвета, версия в подвале
+src/settings.rs — панель настроек: группы виджет/мышь/кейкапы/клики/скролл/цвета/трей, версия в подвале
+src/tray.rs    — иконка в системном трее: чистая часть (TrayAction, action_for_menu_id, to_wide, пиксели иконки — тесты) + Win-клей (Shell_NotifyIconW, message-only окно, меню, TaskbarCreated)
 src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея
 src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log (шапка с версией), чистый + Win-клей, тесты
 build.rs        — вшивает assets/keypress-uiaccess.manifest только при KEYPRESS_UIACCESS=1 (winresource)
@@ -143,7 +158,7 @@ make-uiaccess.ps1 — сборка+сертификат+подпись+Program F
 ## Сборка, тесты, проверка
 
 ```bat
-cargo test                                        :: 94 unit-теста (не требует Windows)
+cargo test                                        :: 99 unit-тестов (не требует Windows)
 cargo run --release                               :: оверлей + панель
 cargo run --release -- --settings                 :: только панель
 cargo check --target x86_64-pc-windows-gnu        :: кросс-проверка клея
@@ -152,8 +167,8 @@ KEYPRESS_UIACCESS=1 cargo build --release         :: UIAccess-вариант (с
 
 ## Горячие клавиши (зафиксированы)
 
-- `Ctrl+Alt+K` — пауза/показ
-- `Ctrl+Alt+Q` — выход
+- `Ctrl+Alt+K` — пауза/показ (также: левый клик по иконке в трее)
+- `Ctrl+Alt+Q` — выход (также: пункт «Выход» в меню трея)
 
 ## Известные ограничения MVP (осознанные)
 

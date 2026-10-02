@@ -14,7 +14,7 @@ use crate::icons::{keycap_svg, mouse_svg, MouseIcon};
 use crate::input::UiEvent;
 use crate::keys::{combo_text, Part};
 use crate::winutil::apply_overlay_styles;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -56,6 +56,11 @@ struct ScrollFx {
 pub struct OverlayApp {
     cfg: Config,
     rx: Receiver<UiEvent>,
+    /// Копия отправителя: трей может быть включён на лету из панели настроек
+    /// (config перечитывается по mtime) — нужен Sender для spawn().
+    tx: Sender<UiEvent>,
+    /// Трей сейчас запущен (синхронизирован с cfg.tray_icon через sync_tray).
+    tray_active: bool,
     bubbles: Vec<Bubble>,
     ripples: Vec<Ripple>,
     scrolls: Vec<ScrollFx>,
@@ -115,10 +120,12 @@ impl OverlayApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         crate::hooks::set_show_cyrillic(cfg.show_cyrillic);
         let (tx, rx) = crossbeam_channel::unbounded();
-        spawn_hooks(tx);
-        Self {
+        spawn_hooks(tx.clone());
+        let mut app = Self {
             cfg,
             rx,
+            tx,
+            tray_active: false,
             bubbles: Vec::new(),
             ripples: Vec::new(),
             scrolls: Vec::new(),
@@ -127,6 +134,22 @@ impl OverlayApp {
             cfg_last_check: Instant::now(),
             cfg_mtime: None,
             textures: HashMap::new(),
+        };
+        app.sync_tray();
+        app
+    }
+
+    /// Включает/выключает иконку трея в соответствии с cfg.tray_icon.
+    /// Зовётся при старте и после перечитывания keypress.toml (галочка в
+    /// панели настроек применяется на лету).
+    fn sync_tray(&mut self) {
+        if self.cfg.tray_icon && !self.tray_active {
+            self.tray_active = true;
+            crate::tray::spawn(self.tx.clone());
+            crate::tray::set_paused(self.paused);
+        } else if !self.cfg.tray_icon && self.tray_active {
+            self.tray_active = false;
+            crate::tray::shutdown();
         }
     }
 
@@ -194,6 +217,9 @@ impl OverlayApp {
                 }
                 UiEvent::TogglePause => {
                     self.paused = !self.paused;
+                    // Галочка «Пауза» в меню трея (если иконка включена;
+                    // вызов безопасен и до её создания).
+                    crate::tray::set_paused(self.paused);
                 }
                 UiEvent::Quit => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -214,6 +240,8 @@ impl OverlayApp {
             self.cfg_mtime = mtime;
             self.cfg = load();
             crate::hooks::set_show_cyrillic(self.cfg.show_cyrillic);
+            // Галочка «Иконка в трее» применяется на лету
+            self.sync_tray();
         }
     }
 
@@ -949,4 +977,7 @@ pub fn run() {
         options,
         Box::new(|cc| Ok(Box::new(OverlayApp::new(cc, cfg)))),
     );
+    // Аккуратно убрать иконку трея (иначе останется «призрак» до наведения
+    // мыши): поток трея удаляет иконку в WM_DESTROY.
+    crate::tray::shutdown();
 }

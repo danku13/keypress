@@ -12,6 +12,7 @@ mod fx;
 mod icons;
 mod input;
 mod keys;
+mod tray;
 mod zorder;
 
 // Windows-глацинирование: GUI, хуки и Win API живут только под Windows
@@ -47,7 +48,7 @@ pub fn decide_mode(args: &[String]) -> LaunchMode {
 }
 
 #[cfg(windows)]
-fn spawn_panel_if_needed() {
+pub(crate) fn spawn_panel_if_needed() {
     if winutil::window_exists(winutil::SETTINGS_TITLE) {
         return;
     }

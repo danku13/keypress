@@ -57,6 +57,9 @@ pub struct Config {
     pub keycap_text_scale: f32,
     /// Сколько последних значений держать в виджете клавиш (1..10)
     pub max_keys: usize,
+    /// Иконка в системном трее: пауза/показ, настройки, выход (правый клик).
+    /// Читается при старте оверлея и на лету при изменении keypress.toml.
+    pub tray_icon: bool,
     /// Сколько секунд висит комбо на экране
     pub key_duration: f32,
     /// Скругление углов клавиш (0..40)
@@ -91,6 +94,7 @@ impl Default for Config {
             keycap_text_dy: 0.0,
             keycap_text_scale: 1.0,
             max_keys: 4,
+            tray_icon: true,
             key_duration: 1.2,
             key_radius: 10.0,
             click_shape: ClickShape::Ring,
