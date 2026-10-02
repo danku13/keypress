@@ -147,6 +147,15 @@
    пуш тега v* — softprops/action-gh-release (permissions contents: write).
    fail-fast: false — падение одной платформы не отменяет остальные.
    build.rs в CI безопасен: без KEYPRESS_UIACCESS=1 ранний выход.
+17. **README-реворк по best-practice (v0.5.1)**: структура по паттернам топовых
+   MIT-проектов (React/VS Code/Tauri/bat/fd): hero-превью в шапке (docs/preview.png,
+   мок-рендер; место под реальный GIF — закомментированный блок), download-first
+   (Быстрый старт через releases/latest + SmartScreen-примечание), 7 коротких
+   фич с жирными ключами, полная таблица keypress.toml (ключ/дефолт/описание
+   — из config.rs), таблица горячих клавиш, оглавление с якорями, таблица
+   альтернатив (keyviz GPL-3.0 / Carnac MS-PL архив / KeyCastr BSD-3 / Keystro
+   проприетарная — лицензии сверены по страницам GitHub), «Как это устроено»
+   → аннотация + ARCHITECTURE.md, вдохновение/лицензия в конце.
 
 ## Ключевые файлы
 
@@ -163,6 +172,8 @@ src/overlay.rs  — окно-оверлей, рендер эффектов (math
 src/settings.rs — панель настроек: группы виджет/мышь/кейкапы/клики/скролл/цвета/трей, версия в подвале
 src/tray.rs    — иконка в системном трее: чистая часть (TrayAction, action_for_menu_id, to_wide, пиксели иконки — тесты) + Win-клей (Shell_NotifyIconW, message-only окно, меню, TaskbarCreated)
 src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея и панели настроек (stop_settings: «Выход» из трея закрывает и её)
+ARCHITECTURE.md — перенос «Как это устроено» + «Тесты (TDD)» из README (README — пользователям, ARCHITECTURE — разработчикам)
+docs/preview.png (+.svg) — мок-превью виджета для шапки README (рендер скриптом вне репо; заменить на docs/demo.gif, когда владелец запишет GIF — заготовка-комментарий в README)
 src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log (шапка с версией), чистый + Win-клей, тесты
 build.rs        — вшивает assets/keypress-uiaccess.manifest только при KEYPRESS_UIACCESS=1 (winresource)
 make-uiaccess.ps1 — сборка+сертификат+подпись+Program Files (UIAccess-версия)
