@@ -133,7 +133,9 @@
    в окно трея → WM_DESTROY удаляет иконку (без «призраков»). Включение/выключение
    на лету: cfg.tray_icon + OverlayApp::sync_tray() после перечитывания конфига.
    ВАЖНО: трей живёт в ПРОЦЕССЕ ОВЕРЛЕЯ (панель настроек — отдельный короткоживущий
-   процесс, иконка там не нужна).
+   процесс, иконка там не нужна). UiEvent::Quit («Выход»/Ctrl+Alt+Q): оверлей
+   сначала шлёт WM_CLOSE окну панели (winutil::stop_settings — иначе панель,
+   как отдельный процесс, оставалась висеть), затем закрывается сам.
 
 ## Ключевые файлы
 
@@ -149,7 +151,7 @@ src/hooks.rs    — поток хуков: Win API-клей над keys/input, �
 src/overlay.rs  — окно-оверлей, рендер эффектов (math берет из fx); классика текст/смешанная (текст+SVG-иконки), кейкапы с кастом-картинками и позиционированием текста
 src/settings.rs — панель настроек: группы виджет/мышь/кейкапы/клики/скролл/цвета/трей, версия в подвале
 src/tray.rs    — иконка в системном трее: чистая часть (TrayAction, action_for_menu_id, to_wide, пиксели иконки — тесты) + Win-клей (Shell_NotifyIconW, message-only окно, меню, TaskbarCreated)
-src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея
+src/winutil.rs  — FindWindow/клик-тру (LAYERED+TRANSPARENT + LWA_ALPHA!)/переутверждение HWND_TOPMOST каждый кадр (баг v0.3: Пуск перекрывал оверлей — winit ставит topmost один раз)/остановка оверлея и панели настроек (stop_settings: «Выход» из трея закрывает и её)
 src/zorder.rs   — диагностика z-порядка: shell-классы (CoreWindow=Пуск/Поиск и др.), KEYPRESS_DEBUG=1 -> keypress-zdebug.log (шапка с версией), чистый + Win-клей, тесты
 build.rs        — вшивает assets/keypress-uiaccess.manifest только при KEYPRESS_UIACCESS=1 (winresource)
 make-uiaccess.ps1 — сборка+сертификат+подпись+Program Files (UIAccess-версия)

@@ -93,6 +93,28 @@ mod imp {
         }
     }
 
+    /// HWND панели настроек (0 — не открыта). Панель — отдельный процесс
+    /// (keypress.exe --settings), поэтому для управления ею из оверлея
+    /// доступен только поиск окна по заголовку.
+    pub fn settings_hwnd() -> isize {
+        let t = utf16z(SETTINGS_TITLE);
+        unsafe { FindWindowW(std::ptr::null(), t.as_ptr()) }
+    }
+
+    /// Просит панель настроек закрыться (WM_CLOSE — то же, что крестик).
+    /// Зовётся оверлеем при «Выход» из трея / Ctrl+Alt+Q: панель — отдельный
+    /// процесс, сама по себе от выхода оверлея она не умирает и оставалась
+    /// висеть пустым окном.
+    pub fn stop_settings() {
+        let hwnd = settings_hwnd();
+        if hwnd == 0 {
+            return;
+        }
+        unsafe {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+    }
+
     pub fn overlay_running() -> bool {
         overlay_hwnd() != 0
     }
@@ -104,6 +126,10 @@ mod imp {
     pub const SETTINGS_TITLE: &str = "Keypress — настройки";
     pub fn apply_overlay_styles() {}
     pub fn stop_overlay() {}
+    pub fn stop_settings() {}
+    pub fn settings_hwnd() -> isize {
+        0
+    }
     pub fn overlay_hwnd() -> isize {
         0
     }

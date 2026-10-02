@@ -222,6 +222,10 @@ impl OverlayApp {
                     crate::tray::set_paused(self.paused);
                 }
                 UiEvent::Quit => {
+                    // Панель настроек — ОТДЕЛЬНЫЙ процесс: без этого после
+                    // «Выход» из трея и Ctrl+Alt+Q оставалось висеть её окно.
+                    // WM_CLOSE — то же, что крестик; панель не открыта — no-op.
+                    crate::winutil::stop_settings();
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
